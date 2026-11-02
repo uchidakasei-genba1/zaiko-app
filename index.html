@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="utf-8">
@@ -9,121 +9,499 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
+<!-- 材料在庫アプリの画面。データはここには無く、合言葉を入れた端末だけが Google Apps Script（データ係）から読み書きできる -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <style>
-  html, body { margin: 0; height: 100%; background: #1a2b4c; overflow: hidden; }
-  iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #f2f4f8; }
-  #help { position: fixed; left: 0; right: 0; bottom: 0; display: none; padding: 14px 16px; background: #fff;
-          font: 16px/1.6 system-ui, sans-serif; color: #1b2430; box-shadow: 0 -2px 8px rgba(0,0,0,.2); }
-  #help a { color: #1a2b4c; font-weight: 700; }
-  /* カメラ（アプリの上に重ねて出す） */
-  #cam { position: fixed; inset: 0; background: #000; display: none; z-index: 10; }
-  #cam video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-  #cam .frame { position: absolute; left: 50%; top: 45%; width: 64vmin; height: 64vmin; transform: translate(-50%, -50%);
-                border: 4px solid rgba(255,255,255,.9); border-radius: 16px; box-shadow: 0 0 0 100vmax rgba(0,0,0,.35); }
-  #cam .msg { position: absolute; top: 0; left: 0; right: 0; padding: 18px 16px; text-align: center; color: #fff;
-              font: bold 19px/1.5 system-ui, sans-serif; background: rgba(0,0,0,.45); }
-  #cam button { position: absolute; left: 16px; right: 16px; bottom: calc(24px + env(safe-area-inset-bottom)); padding: 16px;
-                font: bold 20px system-ui, sans-serif; border: 0; border-radius: 12px; background: #fff; color: #1a2b4c; }
+:root { --navy:#1a2b4c; --bg:#f2f4f8; --card:#fff; --text:#1a2233; --sub:#5b6577; --line:#d9dee8; --ok:#1e8e3e; --warn:#d35400; --ng:#c0392b; --accent:#2f6fde; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:"Hiragino Sans","Yu Gothic","Meiryo",sans-serif; font-size:18px; color:var(--text); background:var(--bg); padding-bottom:84px; }
+header { background:var(--navy); color:#fff; padding:10px 14px; display:flex; align-items:center; gap:10px; position:sticky; top:0; z-index:5; }
+header h1 { font-size:20px; margin:0; flex:1; }
+header select { font-size:15px; padding:4px; border-radius:6px; max-width:45%; }
+main { padding:12px; max-width:760px; margin:0 auto; }
+nav { position:fixed; bottom:0; left:0; right:0; background:#fff; border-top:1px solid var(--line); display:flex; z-index:5; }
+nav button { flex:1; border:0; background:none; padding:8px 0 10px; font-size:13px; color:var(--sub); display:flex; flex-direction:column; align-items:center; gap:2px; }
+nav button svg { width:26px; height:26px; }
+nav button.on { color:var(--navy); font-weight:bold; }
+.view { display:none; } .view.on { display:block; }
+.btn { display:block; width:100%; border:0; border-radius:10px; padding:14px; font-size:19px; font-weight:bold; background:var(--navy); color:#fff; margin:8px 0; }
+.btn.sub { background:#fff; color:var(--navy); border:2px solid var(--navy); }
+.btn.ok { background:var(--ok); } .btn.warn { background:var(--warn); } .btn.ng { background:var(--ng); }
+.btn:disabled { opacity:.5; }
+.row2 { display:flex; gap:8px; } .row2 > * { flex:1; }
+.card { background:var(--card); border-radius:12px; padding:14px; margin:10px 0; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.item { background:var(--card); border-radius:10px; padding:10px 12px; margin:6px 0; border-left:6px solid var(--navy); display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.item .n { font-weight:bold; } .item .s { font-size:14px; color:var(--sub); }
+.item .q { font-size:22px; font-weight:bold; white-space:nowrap; }
+.item.done { border-left-color:var(--ok); opacity:.65; }
+input, select { font-size:18px; padding:10px; border:1px solid var(--line); border-radius:8px; width:100%; background:#fff; }
+label.f { display:block; font-size:14px; color:var(--sub); margin:10px 0 3px; }
+.big { font-size:42px; font-weight:bold; } .unit { font-size:20px; margin-left:4px; }
+.muted { color:var(--sub); font-size:14px; }
+.chips { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
+.chips button { border:1px solid var(--navy); background:#fff; color:var(--navy); border-radius:20px; padding:8px 14px; font-size:17px; }
+#cam { position:relative; background:#000; border-radius:12px; overflow:hidden; display:none; }
+#cam video { width:100%; display:block; }
+#cam .frame { position:absolute; inset:18% 18%; border:4px solid rgba(255,255,255,.85); border-radius:12px; }
+.msg { padding:10px 12px; border-radius:8px; margin:8px 0; font-size:16px; }
+.msg.ok { background:#e6f4ea; color:#145c2a; } .msg.ng { background:#fdecea; color:#8a1c12; } .msg.info { background:#e8f0fe; color:#1a3d8f; }
+#sheet { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; z-index:20; align-items:flex-end; justify-content:center; }
+#sheet.on { display:flex; }
+#sheet .body { background:var(--bg); width:100%; max-width:760px; max-height:92vh; overflow:auto; border-radius:16px 16px 0 0; padding:14px; }
+#sheet .close { float:right; border:0; background:none; font-size:16px; color:var(--sub); padding:6px; }
+details { background:#fff; border-radius:10px; margin:8px 0; padding:4px 12px; }
+details summary { padding:8px 0; font-weight:bold; }
+.prog { height:14px; background:#dde3ee; border-radius:7px; overflow:hidden; margin:6px 0; }
+.prog div { height:100%; background:var(--ok); }
+#toast { position:fixed; left:50%; bottom:96px; transform:translateX(-50%); background:#222; color:#fff; padding:10px 18px; border-radius:20px; font-size:16px; display:none; z-index:30; }
+.lbl-row { display:flex; align-items:center; gap:10px; }
+.lbl-row input[type=checkbox] { width:26px; height:26px; flex:none; }
+/* 印刷（A4・8面＝105×74.25mm） */
+#print { display:none; }
+@media print {
+  @page { size:A4; margin:0; }
+  body { background:#fff; padding:0; }
+  header, nav, main, #sheet, #toast { display:none !important; }
+  #print { display:block; }
+  .page { width:210mm; height:297mm; display:grid; grid-template-columns:105mm 105mm; grid-template-rows:repeat(4, 74.25mm); page-break-after:always; }
+  .lab { padding:5mm; display:flex; gap:4mm; align-items:center; overflow:hidden; }
+  .lab .qr { width:44mm; height:44mm; flex:none; }
+  .lab .qr svg { width:100%; height:100%; }
+  .lab .t { flex:1; min-width:0; }
+  .lab .nm { font-size:17pt; font-weight:bold; line-height:1.2; word-break:break-all; }
+  .lab .kg { font-size:14pt; margin-top:2mm; }
+  .lab .sm { font-size:9pt; color:#333; margin-top:1.5mm; }
+}
 </style>
 </head>
 <body>
-<!-- 材料在庫アプリ（Google Apps Script）を画面いっぱいに表示する入口。
-     Googleのアプリの中ではカメラが使えないため、カメラはこのページで動かし、読んだQRの中身をアプリへ渡す。
-     データはここには無く、現場用アカウントでログインしているときだけ表示される -->
-<iframe id="app" title="材料在庫" allow="clipboard-write"></iframe>
-<div id="help">表示されないときは <a id="direct" target="_blank" rel="noopener">こちらから開いてください</a></div>
-<div id="cam"><video id="video" playsinline muted></video><div class="frame"></div>
-  <div class="msg" id="cam-msg">QRコードを枠に入れてください</div>
-  <button onclick="closeCam(true)">閉じる</button></div>
+<header>
+  <h1>材料在庫</h1>
+  <select id="staff" onchange="saveStaff()"></select>
+  <button onclick="askToken('')" aria-label="合言葉の設定" style="border:0;background:none;color:#fff;padding:4px"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></svg></button>
+</header>
+
+<main>
+  <!-- 読み取り -->
+  <section class="view on" id="v-scan">
+    <div id="cam"><video id="video" playsinline muted></video><div class="frame"></div></div>
+    <button class="btn" id="b-cam" onclick="startCam('open')">カメラでQRを読む</button>
+    <button class="btn sub" onclick="camMode='open';document.getElementById('photo').click()">写真を撮って読む</button>
+    <input type="file" id="photo" accept="image/*" capture="environment" style="display:none" onchange="readPhoto(this)">
+    <div id="scan-msg"></div>
+    <p class="muted">携帯のふつうのカメラでQRを読んでも、このアプリが開きます。</p>
+  </section>
+
+  <!-- 材料 -->
+  <section class="view" id="v-mat">
+    <div class="row2"><input id="q-mat" placeholder="材料名・IDで探す" oninput="drawMat()"><select id="p-mat" onchange="drawMat()"></select></div>
+    <button class="btn sub" onclick="openReceive('mat')">入荷を登録する</button>
+    <div class="muted" id="sum-mat"></div>
+    <div id="list-mat"></div>
+  </section>
+
+  <!-- 副資材 -->
+  <section class="view" id="v-sub">
+    <div class="row2"><input id="q-sub" placeholder="資材名・取引先で探す" oninput="drawSub()"><select id="p-sub" onchange="drawSub()"></select></div>
+    <button class="btn sub" onclick="openReceive('sub')">新しい資材を登録する</button>
+    <div id="list-sub"></div>
+  </section>
+
+  <!-- 棚卸 -->
+  <section class="view" id="v-tana"><div id="tana"></div></section>
+
+  <!-- ラベル -->
+  <section class="view" id="v-label">
+    <div class="row2">
+      <select id="l-kind" onchange="drawLabel()"><option value="mat">材料</option><option value="sub">副資材</option></select>
+      <select id="l-filter" onchange="drawLabel()"><option value="new">未印刷だけ</option><option value="all">すべて</option></select>
+    </div>
+    <input id="q-label" placeholder="名前で絞り込む" oninput="drawLabel()" style="margin-top:8px">
+    <div class="row2"><button class="btn sub" onclick="checkAll(true)">全部選ぶ</button><button class="btn sub" onclick="checkAll(false)">全部外す</button></div>
+    <button class="btn" onclick="printLabels()">選んだラベルを印刷（A4・8面）</button>
+    <div id="list-label"></div>
+  </section>
+</main>
+
+<nav>
+  <button class="on" data-v="scan" onclick="show('scan')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8V4h4M17 4h4v4M21 16v4h-4M7 20H3v-4"/><rect x="8" y="8" width="8" height="8"/></svg>読み取り</button>
+  <button data-v="mat" onclick="show('mat')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7l8-4 8 4v10l-8 4-8-4z"/><path d="M4 7l8 4 8-4M12 11v10"/></svg>材料</button>
+  <button data-v="sub" onclick="show('sub')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13"/><path d="M3 7l3-4h12l3 4M10 12h4"/></svg>副資材</button>
+  <button data-v="tana" onclick="show('tana')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12l2 2 4-4M9 17h6"/></svg>棚卸</button>
+  <button data-v="label" onclick="show('label')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8"/><path d="M6 14h12v7H6z"/></svg>ラベル</button>
+</nav>
+
+<div id="sheet" onclick="if(event.target===this)closeSheet()"><div class="body" id="sheet-body"></div></div>
+<div id="toast"></div>
+<div id="print"></div>
+
 <script>
-  const APP_URL = 'https://script.google.com/macros/s/AKfycbyBnvUjD2chjfheOnqi1PodNZxAXWn_pUZ0e_UPPh7jw4t39sx_NSeN9md8F__GIU5IRg/exec';
+// データ係（Google Apps Script のウェブアプリ）
+const API_URL = 'https://script.google.com/macros/s/AKfycbyBnvUjD2chjfheOnqi1PodNZxAXWn_pUZ0e_UPPh7jw4t39sx_NSeN9md8F__GIU5IRg/exec';
+const START_ID = new URLSearchParams(location.search).get('id') || '';   // QR（このページのURL?id=…）から開いたとき
+let D = null;            // サーバーから読んだデータ
+let camMode = 'open';    // open：詳細を開く／tana：棚卸で読む
+let stream = null, scanning = false, detector = null;
 
-  // QR（入口ページのURL?id=…）から開かれたときは、そのIDをアプリへ渡す
-  const id = new URLSearchParams(location.search).get('id') || '';
-  const src = APP_URL + '?embed=1' + (id ? '&id=' + encodeURIComponent(id) : '');
-  const app = document.getElementById('app');
-  app.src = src;
-  document.getElementById('direct').href = APP_URL + (id ? '?id=' + encodeURIComponent(id) : '');
-
-  // 20秒たっても枠の中の読み込みが終わらないときだけ、直接開くリンクを出す
-  let loaded = false;
-  app.addEventListener('load', () => { loaded = true; });
-  setTimeout(() => { if (!loaded) document.getElementById('help').style.display = 'block'; }, 20000);
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-
-  /* ---------- カメラ ---------- */
-  const cam = document.getElementById('cam'), video = document.getElementById('video');
-  const canvas = document.createElement('canvas');
-  let stream = null, scanning = false, mode = 'open', detector = null, idle = null;
-
-  // アプリ（Googleの枠の何重か内側）へ送る：枠を全部たどって送り、アプリ側で送り主を確かめる
-  function toApp(msg) {
-    msg.app = 'zaiko';
-    (function walk(w) {
-      for (let i = 0; i < w.frames.length; i++) {
-        try { w.frames[i].postMessage(msg, '*'); walk(w.frames[i]); } catch (e) {}
-      }
-    })(window);
-  }
-
-  window.addEventListener('message', (e) => {
-    if (!/\.googleusercontent\.com$/.test(new URL(e.origin).hostname)) return;
-    const d = e.data || {};
-    if (d.app !== 'zaiko') return;
-    if (d.type === 'scan') openCam(d.mode || 'open');
-    if (d.type === 'stop') closeCam(false);
+/* ---------- サーバー呼び出し ---------- */
+// call('api_load') → データ係の load を呼ぶ。合言葉はこの端末にだけ保存してある
+function call(fn) {
+  const args = Array.prototype.slice.call(arguments, 1);
+  const body = JSON.stringify({ token: store('zaiko_token') || '', fn: fn.replace(/^api_/, ''), args: args });
+  // Content-Type を付けない（text/plain）ことで、事前確認なしで Google に送れる
+  return fetch(API_URL, { method: 'POST', body: body }).then(function (r) { return r.json(); }).then(function (res) {
+    if (res.ok) return res.result;
+    if (res.auth) { askToken('合言葉が違うか、作り直されています。もう一度入れてください。'); }
+    else toast('エラー：' + res.error);
+    throw new Error(res.error);
+  }, function (e) {
+    toast('通信できませんでした。電波を確認してもう一度押してください');
+    throw e;
   });
+}
 
-  async function openCam(m) {
-    mode = m;
-    clearTimeout(idle);
-    document.getElementById('cam-msg').textContent = m === 'tana' ? '棚卸：QRコードを枠に入れてください' : 'QRコードを枠に入れてください';
-    cam.style.display = 'block';
-    try {
-      if (!stream) {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-        video.srcObject = stream;
-      }
-      await video.play();
-      if (!detector && 'BarcodeDetector' in window) { try { detector = new BarcodeDetector({ formats: ['qr_code'] }); } catch (e) {} }
-      scanning = true; loop();
-    } catch (e) {
-      document.getElementById('cam-msg').textContent = 'カメラを使えませんでした。ブラウザの設定でカメラを「許可」にしてください。';
-    }
+/** 合言葉を入れる画面 */
+function askToken(note) {
+  openSheet('<h2>合言葉の設定</h2><p>この端末で材料在庫アプリを使うための合言葉を入れてください（最初の1回だけ）。合言葉は管理者に聞いてください。</p>'
+    + (note ? '<div class="msg ng">' + esc(note) + '</div>' : '')
+    + '<input id="tok" type="password" autocomplete="off" placeholder="合言葉">'
+    + '<button class="btn" onclick="saveToken()">登録する</button>');
+}
+function saveToken() {
+  const t = $('tok').value.trim();
+  if (!t) { toast('合言葉を入れてください'); return; }
+  store('zaiko_token', t);
+  closeSheet();
+  start();
+}
+function start() {
+  if (!store('zaiko_token')) { askToken(''); return; }
+  load().then(function () { if (START_ID) openItem(START_ID); }).catch(function () {});
+}
+function load() {
+  return call('api_load').then(function (d) {
+    D = d;
+    fillStaff(); fillPlaces();
+    drawMat(); drawSub(); drawTana(); drawLabel();
+  });
+}
+
+/* ---------- 共通 ---------- */
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
+function num(n) { return Number(n || 0).toLocaleString('ja-JP'); }
+function toast(s) { const t = $('toast'); t.textContent = s; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(function () { t.style.display = 'none'; }, 2200); }
+function show(v) {
+  document.querySelectorAll('.view').forEach(function (e) { e.classList.toggle('on', e.id === 'v-' + v); });
+  document.querySelectorAll('nav button').forEach(function (b) { b.classList.toggle('on', b.dataset.v === v); });
+  if (v !== 'scan' && v !== 'tana') stopCam();
+  window.scrollTo(0, 0);
+}
+function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
+function staff() { return $('staff').value || ''; }
+function saveStaff() { store('staff', staff()); }
+function fillStaff() {
+  const s = $('staff'), cur = s.value || store('staff') || '';
+  const list = D.settings.staff.length ? D.settings.staff : [];
+  s.innerHTML = '<option value="">担当者を選ぶ</option>' + list.map(function (n) { return '<option' + (n === cur ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('');
+}
+function fillPlaces() {
+  const opt = function (list) { return '<option value="">すべての場所</option>' + list.map(function (p) { return '<option>' + esc(p) + '</option>'; }).join(''); };
+  const pm = $('p-mat').value, ps = $('p-sub').value;
+  $('p-mat').innerHTML = opt(uniq(D.materials.map(function (m) { return m.place; })));
+  $('p-sub').innerHTML = opt(uniq(D.subs.map(function (m) { return m.place; })));
+  $('p-mat').value = pm; $('p-sub').value = ps;
+}
+function uniq(a) { return a.filter(function (x, i) { return x && a.indexOf(x) === i; }).sort(); }
+function find(id) {
+  id = String(id || '').trim();
+  const m = D.materials.filter(function (x) { return x.id === id; })[0];
+  if (m) return { kind: 'mat', it: m };
+  const s = D.subs.filter(function (x) { return x.id === id; })[0];
+  if (s) return { kind: 'sub', it: s };
+  return null;
+}
+function qrUrl(id) { return D.url + '?id=' + encodeURIComponent(id); }
+/** QRの中身（URL or ID）から管理用IDを取り出す */
+function idFrom(text) {
+  const m = String(text).match(/[?&]id=([^&#\s]+)/);
+  return decodeURIComponent(m ? m[1] : String(text).trim());
+}
+function placeText(it) { return esc(it.place) + (it.col ? ' ' + esc(it.col) : ''); }
+
+/* ---------- 一覧 ---------- */
+function drawMat() {
+  const q = $('q-mat').value.trim().toLowerCase(), p = $('p-mat').value;
+  const list = D.materials.filter(function (m) { return (!p || m.place === p) && (!q || (m.name + ' ' + m.id).toLowerCase().indexOf(q) >= 0); })
+    .sort(function (a, b) { return a.name.localeCompare(b.name, 'ja') || b.kg - a.kg; });
+  const total = list.reduce(function (s, m) { return s + m.kg; }, 0);
+  $('sum-mat').textContent = list.length + 'パレット　合計 ' + num(total) + ' kg';
+  $('list-mat').innerHTML = list.map(function (m) {
+    return '<div class="item" onclick="openItem(\'' + m.id + '\')"><div><div class="n">' + esc(m.name) + '</div><div class="s">' + placeText(m) + (m.note ? '　' + esc(m.note) : '') + '</div></div><div class="q">' + num(m.kg) + '<span class="unit">kg</span></div></div>';
+  }).join('') || '<p class="muted">該当なし</p>';
+}
+function drawSub() {
+  const q = $('q-sub').value.trim().toLowerCase(), p = $('p-sub').value;
+  const list = D.subs.filter(function (m) { return (!p || m.place === p) && (!q || (m.name + ' ' + m.cust + ' ' + m.id).toLowerCase().indexOf(q) >= 0); })
+    .sort(function (a, b) { return a.cust.localeCompare(b.cust, 'ja') || a.name.localeCompare(b.name, 'ja'); });
+  $('list-sub').innerHTML = list.map(function (m) {
+    return '<div class="item" onclick="openItem(\'' + m.id + '\')"><div><div class="n">' + esc(m.name) + '</div><div class="s">' + esc(m.cust) + '　' + esc(m.place) + '</div></div><div class="q">' + num(m.qty) + '</div></div>';
+  }).join('') || '<p class="muted">該当なし</p>';
+}
+
+/* ---------- 詳細（使う・移動・数量修正） ---------- */
+function openSheet(html) { $('sheet-body').innerHTML = '<button class="close" onclick="closeSheet()">閉じる</button>' + html; $('sheet').classList.add('on'); }
+function closeSheet() { $('sheet').classList.remove('on'); }
+
+function openItem(id) {
+  const f = find(id);
+  if (!f) { msg('scan-msg', 'ng', 'このQRの在庫が見つかりません（ID：' + esc(id) + '）。使い切り済みの可能性があります。'); show('scan'); return; }
+  const it = f.it, mat = f.kind === 'mat', u = mat ? 'kg' : '';
+  const qty = mat ? it.kg : it.qty;
+  let places = mat ? D.settings.places : D.settings.subPlaces;
+  if (it.place && places.indexOf(it.place) < 0) places = [it.place].concat(places);  // 一覧に無い書き方の場所も選べるように
+  const chips = mat ? [25, 50, 100, 250, 500] : [10, 50, 100, 500];
+  let h = '<div class="muted">' + (mat ? '材料' : '副資材　' + esc(it.cust)) + '　ID ' + esc(it.id) + '</div>'
+    + '<h2 style="margin:4px 0">' + esc(it.name) + '</h2>'
+    + '<div><span class="big">' + num(qty) + '</span><span class="unit">' + (mat ? 'kg' : '個・枚') + '</span></div>'
+    + '<div class="muted">' + placeText(it) + (it.note ? '　' + esc(it.note) : '') + '　更新 ' + esc(it.date) + '</div>'
+    + '<div class="card"><b>使う（在庫から引く）</b>'
+    + '<div class="chips">' + chips.map(function (c) { return '<button onclick="$(\'amt\').value=' + c + '">' + c + u + '</button>'; }).join('') + '</div>'
+    + '<input id="amt" type="number" inputmode="decimal" placeholder="数量' + (u ? '（kg）' : '') + '">'
+    + '<button class="btn warn" onclick="doChange(\'' + f.kind + '\',\'' + it.id + '\',\'use\')">引く</button>'
+    + (mat ? '<button class="btn ng" onclick="if(confirm(\'このパレットを使い切りにしますか？\'))doChange(\'mat\',\'' + it.id + '\',\'set\',0)">全部使った（使い切り）</button>' : '<button class="btn ok" onclick="doChange(\'sub\',\'' + it.id + '\',\'add\')">入荷（足す）</button>')
+    + '</div>'
+    + '<div class="card"><b>置き場を移す</b><label class="f">保管場所</label><select id="mv-place">' + places.map(function (p) { return '<option' + (p === it.place ? ' selected' : '') + '>' + esc(p) + '</option>'; }).join('') + '</select>'
+    + (mat ? '<label class="f">保管列（例：5-2）</label><input id="mv-col" value="' + esc(it.col) + '">' : '')
+    + '<button class="btn sub" onclick="doChange(\'' + f.kind + '\',\'' + it.id + '\',\'move\')">移す</button></div>'
+    + '<div class="card"><b>数量を直す</b><input id="fix" type="number" inputmode="decimal" value="' + qty + '"><button class="btn sub" onclick="doChange(\'' + f.kind + '\',\'' + it.id + '\',\'set\')">この数量に直す</button></div>';
+  openSheet(h);
+}
+
+function doChange(kind, id, op, val) {
+  if (!staff()) { toast('先に右上で担当者を選んでください'); return; }
+  let amount = 0, place = '', col = '';
+  if (op === 'use' || op === 'add') { amount = Number($('amt').value); if (!(amount > 0)) { toast('数量を入れてください'); return; } }
+  if (op === 'set') { amount = val !== undefined ? val : Number($('fix').value); if (isNaN(amount) || amount < 0) { toast('数量が正しくありません'); return; } }
+  if (op === 'move') { place = $('mv-place').value; col = $('mv-col') ? $('mv-col').value.trim() : ''; }
+  document.querySelectorAll('#sheet-body .btn').forEach(function (b) { b.disabled = true; });
+  call('api_change', kind, id, op, amount, place, col, staff(), '').then(function (r) {
+    closeSheet();
+    toast(r.removed ? '使い切りにしました' : '登録しました（残り ' + num(r.after) + (kind === 'mat' ? ' kg' : '') + '）');
+    return load();
+  }).catch(function () { document.querySelectorAll('#sheet-body .btn').forEach(function (b) { b.disabled = false; }); });
+}
+
+/* ---------- 入荷 ---------- */
+function openReceive(kind) {
+  const mat = kind === 'mat';
+  const names = uniq((mat ? D.materials : D.subs).map(function (m) { return m.name; }));
+  const places = mat ? D.settings.places : D.settings.subPlaces;
+  openSheet('<h2>' + (mat ? '材料の入荷' : '副資材の登録') + '</h2>'
+    + '<label class="f">' + (mat ? '材料名' : '資材名') + '</label><input id="r-name" list="r-names"><datalist id="r-names">' + names.map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>'
+    + (mat ? '' : '<label class="f">取引先</label><input id="r-extra" list="r-custs"><datalist id="r-custs">' + uniq(D.subs.map(function (m) { return m.cust; })).map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>')
+    + '<label class="f">' + (mat ? '重さ（kg）' : '数量') + '</label><input id="r-amt" type="number" inputmode="decimal" value="' + (mat ? 500 : '') + '">'
+    + '<label class="f">保管場所</label><select id="r-place">' + places.map(function (p) { return '<option>' + esc(p) + '</option>'; }).join('') + '</select>'
+    + (mat ? '<label class="f">保管列（なくても可）</label><input id="r-col"><label class="f">補足（なくても可）</label><input id="r-extra">' : '')
+    + '<button class="btn" onclick="doReceive(\'' + kind + '\')">登録する</button>');
+}
+function doReceive(kind) {
+  if (!staff()) { toast('先に右上で担当者を選んでください'); return; }
+  const name = $('r-name').value.trim(), amt = Number($('r-amt').value);
+  if (!name || !(amt > 0)) { toast('名前と数量を入れてください'); return; }
+  const col = $('r-col') ? $('r-col').value.trim() : '', extra = $('r-extra') ? $('r-extra').value.trim() : '';
+  call('api_receive', kind, name, amt, $('r-place').value, col, extra, staff()).then(function (id) {
+    return load().then(function () {
+      openSheet('<h2>登録しました</h2><p>' + esc(name) + '　' + num(amt) + (kind === 'mat' ? ' kg' : '') + '<br><span class="muted">ID ' + esc(id) + '</span></p>'
+        + '<button class="btn" onclick="closeSheet();$(\'l-kind\').value=\'' + kind + '\';$(\'l-filter\').value=\'new\';show(\'label\');drawLabel()">ラベルを印刷する</button>'
+        + '<button class="btn sub" onclick="closeSheet()">あとで</button>');
+    });
+  });
+}
+
+/* ---------- カメラ ---------- */
+function msg(el, cls, html) { $(el).innerHTML = html ? '<div class="msg ' + cls + '">' + html + '</div>' : ''; }
+
+function startCam(mode) {
+  camMode = mode;
+  const box = mode === 'tana' ? $('tana-cam') : $('cam');
+  const video = mode === 'tana' ? $('tana-video') : $('video');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { camFail(); return; }
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }).then(function (s) {
+    stream = s; video.srcObject = s; box.style.display = 'block';
+    return video.play();
+  }).then(function () {
+    if ('BarcodeDetector' in window) { try { detector = new BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { detector = null; } }
+    scanning = true; loop(video);
+    if ($('b-cam')) $('b-cam').style.display = mode === 'open' ? 'none' : '';
+  }).catch(function () { camFail(); });
+}
+function camFail() {
+  stopCam();
+  const t = 'この画面ではカメラを直接使えませんでした。「写真を撮って読む」を使ってください。';
+  if (camMode === 'tana') msg('tana-msg', 'ng', t); else msg('scan-msg', 'ng', t);
+}
+function stopCam() {
+  scanning = false;
+  if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+  ['cam', 'tana-cam'].forEach(function (i) { if ($(i)) $(i).style.display = 'none'; });
+  if ($('b-cam')) $('b-cam').style.display = '';
+}
+const canvas = document.createElement('canvas');
+function loop(video) {
+  if (!scanning) return;
+  const next = function () { setTimeout(function () { loop(video); }, 250); };
+  if (!video.videoWidth) { next(); return; }
+  if (detector) {
+    detector.detect(video).then(function (r) { if (r.length) found(r[0].rawValue); else next(); }).catch(function () { detector = null; next(); });
+    return;
   }
-
-  // byUser：「閉じる」を押したとき（アプリに続けて読むのをやめたと伝える）
-  function closeCam(byUser) {
-    scanning = false;
-    cam.style.display = 'none';
-    if (byUser) toApp({ type: 'closed' });
-    // すぐ次を読むことが多いので、カメラは30秒だけ止めずに待つ
-    clearTimeout(idle);
-    idle = setTimeout(() => { if (stream && !scanning) { stream.getTracks().forEach(t => t.stop()); stream = null; } }, 30000);
-  }
-
-  function loop() {
-    if (!scanning) return;
-    const next = () => setTimeout(loop, 200);
-    if (!video.videoWidth) { next(); return; }
-    if (detector) {
-      detector.detect(video).then(r => { r.length ? hit(r[0].rawValue) : next(); }).catch(() => { detector = null; next(); });
-      return;
-    }
-    const w = Math.min(640, video.videoWidth), h = Math.round(video.videoHeight * w / video.videoWidth);
+  const w = Math.min(640, video.videoWidth), h = Math.round(video.videoHeight * w / video.videoWidth);
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d'); ctx.drawImage(video, 0, 0, w, h);
+  const code = jsQR(ctx.getImageData(0, 0, w, h).data, w, h);
+  if (code && code.data) found(code.data); else next();
+}
+function readPhoto(input) {
+  const f = input.files && input.files[0]; input.value = '';
+  if (!f) return;
+  const img = new Image();
+  img.onload = function () {
+    const w = Math.min(1200, img.width), h = Math.round(img.height * w / img.width);
     canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(video, 0, 0, w, h);
-    const code = window.jsQR && jsQR(ctx.getImageData(0, 0, w, h).data, w, h);
-    code && code.data ? hit(code.data) : next();
-  }
+    const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
+    const code = jsQR(ctx.getImageData(0, 0, w, h).data, w, h);
+    URL.revokeObjectURL(img.src);
+    if (code && code.data) found(code.data, true);
+    else msg(camMode === 'tana' && $('tana-msg') ? 'tana-msg' : 'scan-msg', 'ng', 'QRが読めませんでした。QRを大きく、ピントを合わせて撮ってください。');
+  };
+  img.src = URL.createObjectURL(f);
+}
+function found(text, fromPhoto) {
+  if (navigator.vibrate) navigator.vibrate(80);
+  const id = idFrom(text);
+  if (camMode === 'tana' && D.tana.no) { scanning = false; tanaRead(id); return; }
+  stopCam(); msg('scan-msg', '', '');
+  openItem(id);
+}
 
-  function hit(text) {
-    if (navigator.vibrate) navigator.vibrate(80);
-    closeCam(false);
-    toApp({ type: 'qr', text: text, mode: mode });
+/* ---------- 棚卸 ---------- */
+function tanaKey(kind, id) { return (kind === 'sub' ? '副資材' : '材料') + '|' + id; }
+function drawTana() {
+  const t = D.tana;
+  if (!t.no) {
+    $('tana').innerHTML = '<div class="card"><h2 style="margin-top:0">棚卸</h2><p>始めると、パレット・棚のQRを続けて読むだけで記録できます。読まれなかったものは「まだ読んでいない」に残ります。</p>'
+      + '<button class="btn" onclick="tanaStart()">棚卸を始める</button></div>';
+    return;
   }
+  const all = D.materials.filter(function (m) { return m.kg > 0; }).map(function (m) { return { kind: 'mat', it: m }; }).concat(D.subs.map(function (m) { return { kind: 'sub', it: m }; }));
+  const done = all.filter(function (x) { return t.done[tanaKey(x.kind, x.it.id)]; });
+  const rest = all.filter(function (x) { return !t.done[tanaKey(x.kind, x.it.id)]; });
+  const pct = all.length ? Math.round(done.length * 100 / all.length) : 0;
+  const byPlace = {};
+  rest.forEach(function (x) { const p = (x.kind === 'sub' ? '副資材：' : '') + (x.it.place || '（場所なし）'); (byPlace[p] = byPlace[p] || []).push(x); });
+  $('tana').innerHTML = '<div class="card"><div class="muted">棚卸番号 ' + esc(t.no) + '</div>'
+    + '<div><b>' + done.length + '</b> / ' + all.length + ' 件 読み取り済み（' + pct + '%）</div><div class="prog"><div style="width:' + pct + '%"></div></div>'
+    + '<div id="tana-cam" style="position:relative;background:#000;border-radius:12px;overflow:hidden;display:none"><video id="tana-video" playsinline muted style="width:100%;display:block"></video><div class="frame" style="position:absolute;inset:18%;border:4px solid rgba(255,255,255,.85);border-radius:12px"></div></div>'
+    + '<div id="tana-msg"></div><div id="tana-card"></div>'
+    + '<button class="btn" onclick="startCam(\'tana\')">カメラで続けて読む</button>'
+    + '<button class="btn sub" onclick="camMode=\'tana\';document.getElementById(\'photo\').click()">写真を撮って読む</button></div>'
+    + '<h3>まだ読んでいない（' + rest.length + '件）</h3>'
+    + Object.keys(byPlace).sort().map(function (p) {
+      return '<details><summary>' + esc(p) + '（' + byPlace[p].length + '）</summary>' + byPlace[p].map(function (x) {
+        return '<div class="item" onclick="tanaRead(\'' + x.it.id + '\')"><div><div class="n">' + esc(x.it.name) + '</div><div class="s">' + placeText(x.it) + '</div></div><div class="q">' + num(x.kind === 'mat' ? x.it.kg : x.it.qty) + '</div></div>';
+      }).join('') + '</details>';
+    }).join('')
+    + '<details><summary>読み取り済み（' + done.length + '）</summary>' + done.map(function (x) {
+      const r = t.done[tanaKey(x.kind, x.it.id)];
+      return '<div class="item done"><div><div class="n">' + esc(x.it.name) + '</div><div class="s">' + esc(r.at) + '　' + esc(r.staff) + '</div></div><div class="q">' + num(r.qty) + '</div></div>';
+    }).join('') + '</details>'
+    + '<button class="btn ng" style="margin-top:24px" onclick="tanaEnd(' + rest.length + ')">棚卸を終える</button>';
+}
+function tanaStart() {
+  if (!confirm('棚卸を始めますか？')) return;
+  call('api_tanaStart').then(load);
+}
+function tanaEnd(rest) {
+  if (!confirm((rest ? 'まだ読んでいないものが ' + rest + ' 件あります。\n' : '') + '棚卸を終えますか？')) return;
+  stopCam(); call('api_tanaEnd').then(load);
+}
+/** 読んだ1件：帳簿の数を見せて「このまま」か「直す」 */
+function tanaRead(id) {
+  const f = find(id);
+  if (!f) { msg('tana-msg', 'ng', '在庫に無いQRです（ID：' + esc(id) + '）'); resume(); return; }
+  const it = f.it, mat = f.kind === 'mat', q = mat ? it.kg : it.qty;
+  const again = D.tana.done[tanaKey(f.kind, it.id)];
+  msg('tana-msg', '', '');
+  $('tana-card').innerHTML = '<div class="card" style="border:3px solid var(--accent)">'
+    + (again ? '<div class="msg info">読み取り済みです（' + esc(again.at) + '）。もう一度登録できます。</div>' : '')
+    + '<div class="n" style="font-size:20px;font-weight:bold">' + esc(it.name) + '</div><div class="muted">' + placeText(it) + '　ID ' + esc(it.id) + '</div>'
+    + '<div>帳簿：<span class="big" style="font-size:32px">' + num(q) + '</span><span class="unit">' + (mat ? 'kg' : '') + '</span></div>'
+    + '<button class="btn ok" onclick="tanaSave(\'' + f.kind + '\',\'' + it.id + '\',null)">このまま（帳簿どおり）</button>'
+    + '<div class="row2"><input id="tana-q" type="number" inputmode="decimal" placeholder="実際の数"><button class="btn warn" style="margin:0" onclick="tanaSave(\'' + f.kind + '\',\'' + it.id + '\',$(\'tana-q\').value)">直して登録</button></div>'
+    + '<button class="btn sub" onclick="$(\'tana-card\').innerHTML=\'\';resume()">やめる</button></div>';
+  $('tana-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function tanaSave(kind, id, qty) {
+  if (!staff()) { toast('先に右上で担当者を選んでください'); return; }
+  if (qty !== null && (qty === '' || isNaN(Number(qty)))) { toast('実際の数を入れてください'); return; }
+  $('tana-card').querySelectorAll('.btn').forEach(function (b) { b.disabled = true; });
+  call('api_tanaScan', kind, id, qty === null ? null : Number(qty), staff()).then(function (r) {
+    D.tana.done[tanaKey(kind, id)] = { qty: r.qty, at: '今', staff: staff() };
+    const f = find(id); if (f) { if (kind === 'mat') f.it.kg = r.qty; else f.it.qty = r.qty; }
+    const live = !!stream;
+    stopCam();
+    toast(r.qty === r.book ? '記録しました' : '記録して在庫を直しました');
+    drawTana();
+    if (live) startCam('tana');
+    if (r.qty === 0 && kind === 'mat') load();
+  });
+}
+function resume() {
+  if (stream && camMode === 'tana') { scanning = true; loop($('tana-video')); }
+}
+
+/* ---------- ラベル ---------- */
+function drawLabel() {
+  if (!D) return;
+  const kind = $('l-kind').value, onlyNew = $('l-filter').value === 'new', q = $('q-label').value.trim().toLowerCase();
+  const list = (kind === 'mat' ? D.materials.filter(function (m) { return m.kg > 0; }) : D.subs).filter(function (m) { return (!onlyNew || !D.printed[m.id]) && (!q || m.name.toLowerCase().indexOf(q) >= 0); })
+    .sort(function (a, b) { return a.name.localeCompare(b.name, 'ja'); });
+  $('list-label').innerHTML = '<p class="muted">' + list.length + '件</p>' + list.map(function (m) {
+    return '<label class="item lbl-row"><input type="checkbox" class="lchk" value="' + esc(m.id) + '" checked><div style="flex:1"><div class="n">' + esc(m.name) + '</div><div class="s">' + placeText(m) + (D.printed[m.id] ? '　印刷済 ' + esc(D.printed[m.id]) : '') + '</div></div><div class="q">' + num(kind === 'mat' ? m.kg : m.qty) + '</div></label>';
+  }).join('');
+}
+function checkAll(v) { document.querySelectorAll('.lchk').forEach(function (c) { c.checked = v; }); }
+function qrSvg(text) {
+  const qr = qrcode(0, 'M'); qr.addData(text); qr.make();
+  return qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+}
+function printLabels() {
+  const ids = Array.prototype.map.call(document.querySelectorAll('.lchk:checked'), function (c) { return c.value; });
+  if (!ids.length) { toast('印刷するものを選んでください'); return; }
+  const labs = ids.map(function (id) {
+    const f = find(id); if (!f) return '';
+    const it = f.it, mat = f.kind === 'mat';
+    return '<div class="lab"><div class="qr">' + qrSvg(qrUrl(id)) + '</div><div class="t"><div class="nm">' + esc(it.name) + '</div>'
+      + '<div class="kg">' + (mat ? num(it.kg) + ' kg' : esc(it.cust)) + '</div>'
+      + '<div class="sm">' + placeText(it) + (it.note ? '　' + esc(it.note) : '') + '</div>'
+      + '<div class="sm">登録 ' + esc(it.date) + '　ID ' + esc(id) + '</div></div></div>';
+  });
+  let html = '';
+  for (let i = 0; i < labs.length; i += 8) html += '<div class="page">' + labs.slice(i, i + 8).join('') + '</div>';
+  $('print').innerHTML = html;
+  setTimeout(function () {
+    window.print();
+    setTimeout(function () {
+      if (confirm(ids.length + '枚を「印刷済み」にしますか？\n（うまく印刷できなかったときは「キャンセル」）')) call('api_printed', ids).then(load);
+    }, 500);
+  }, 300);
+}
+
+/* ---------- 起動 ---------- */
+start();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
 </script>
 </body>
 </html>
