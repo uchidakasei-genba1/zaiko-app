@@ -85,7 +85,7 @@ details summary { padding:8px 0; font-weight:bold; }
 </head>
 <body>
 <header>
-  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v6</small></h1>
+  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v7</small> <span id="mode" style="display:none;font-size:13px;background:#e8913a;color:#fff;border-radius:6px;padding:1px 8px;vertical-align:middle">テスト</span></h1>
   <select id="staff" onchange="saveStaff()"></select>
   <button onclick="askToken('')" aria-label="合言葉の設定" style="border:0;background:none;color:#fff;padding:4px"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></svg></button>
 </header>
@@ -199,6 +199,7 @@ function load() {
 }
 function render(d) {
   D = d;
+  $('mode').style.display = d.mode === 'test' ? 'inline-block' : 'none';   // テスト用コピーを見ているときだけ「テスト」と出す
   fillStaff(); fillPlaces();
   drawMat(); drawSub(); drawTana(); drawLabel();
 }
@@ -323,15 +324,23 @@ function doChange(kind, id, op, val) {
 /* ---------- 入荷 ---------- */
 function openReceive(kind) {
   const mat = kind === 'mat';
-  const names = uniq((mat ? D.materials : D.subs).map(function (m) { return m.name; }));
+  // 候補：今の在庫の名前＋名前一覧（使い切りで行が消えた材料の名前も選べる）
+  const nm = D.names || { mat: [], sub: [] };
+  const names = uniq((mat ? D.materials : D.subs).map(function (m) { return m.name; }).concat(mat ? nm.mat : nm.sub.map(function (s) { return s.name; })));
   const places = mat ? D.settings.places : D.settings.subPlaces;
   openSheet('<h2>' + (mat ? '材料の入荷' : '副資材の登録') + '</h2>'
-    + '<label class="f">' + (mat ? '材料名' : '資材名') + '</label><input id="r-name" list="r-names"><datalist id="r-names">' + names.map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>'
+    + '<label class="f">' + (mat ? '材料名' : '資材名') + '（候補から選ぶか、新しく入力）</label><input id="r-name" list="r-names"' + (mat ? '' : ' onchange="fillCust()"') + '><datalist id="r-names">' + names.map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>'
     + (mat ? '' : '<label class="f">取引先</label><input id="r-extra" list="r-custs"><datalist id="r-custs">' + uniq(D.subs.map(function (m) { return m.cust; })).map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>')
     + '<label class="f">' + (mat ? '重さ（kg）' : '数量') + '</label><input id="r-amt" type="number" inputmode="decimal" value="' + (mat ? 500 : '') + '">'
     + '<label class="f">保管場所</label><select id="r-place">' + places.map(function (p) { return '<option>' + esc(p) + '</option>'; }).join('') + '</select>'
     + (mat ? '<label class="f">保管列（なくても可）</label><input id="r-col"><label class="f">補足（なくても可）</label><input id="r-extra">' : '')
     + '<button class="btn" onclick="doReceive(\'' + kind + '\')">登録する</button>');
+}
+/** 副資材：名前を選んだら取引先を自動で入れる */
+function fillCust() {
+  const n = $('r-name').value.trim();
+  const hit = D.subs.filter(function (s) { return s.name === n; })[0] || ((D.names || {}).sub || []).filter(function (s) { return s.name === n; })[0];
+  if (hit && hit.cust && !$('r-extra').value) $('r-extra').value = hit.cust;
 }
 function doReceive(kind) {
   if (!staff()) { toast('先に右上で担当者を選んでください'); return; }
