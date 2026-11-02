@@ -85,7 +85,7 @@ details summary { padding:8px 0; font-weight:bold; }
 </head>
 <body>
 <header>
-  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v9</small> <span id="mode" style="display:none;font-size:13px;background:#e8913a;color:#fff;border-radius:6px;padding:1px 8px;vertical-align:middle">テスト</span></h1>
+  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v11</small> <span id="mode" style="display:none;font-size:13px;background:#e8913a;color:#fff;border-radius:6px;padding:1px 8px;vertical-align:middle">テスト</span></h1>
   <select id="staff" onchange="saveStaff()"></select>
   <button onclick="askToken('')" aria-label="合言葉の設定" style="border:0;background:none;color:#fff;padding:4px"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></svg></button>
 </header>
@@ -111,7 +111,8 @@ details summary { padding:8px 0; font-weight:bold; }
 
   <!-- 副資材 -->
   <section class="view" id="v-sub">
-    <div class="row2"><input id="q-sub" placeholder="資材名・取引先で探す" oninput="drawSub()"><select id="p-sub" onchange="drawSub()"></select></div>
+    <input id="q-sub" placeholder="資材名・取引先で探す" oninput="drawSub()">
+    <div class="row2" style="margin-top:8px"><select id="p-sub" onchange="drawSub()"></select><select id="c-sub" onchange="drawSub()"></select></div>
     <button class="btn sub" onclick="openReceive('sub')">新しい資材を登録する</button>
     <div id="list-sub"></div>
   </section>
@@ -153,20 +154,50 @@ let camMode = 'open';    // open：詳細を開く／tana：棚卸で読む
 let stream = null, scanning = false, detector = null;
 
 /* ---------- サーバー呼び出し ---------- */
-// call('api_load') → データ係の load を呼ぶ。合言葉はこの端末にだけ保存してある
-function call(fn) {
-  const args = Array.prototype.slice.call(arguments, 1);
-  const body = JSON.stringify({ token: store('zaiko_token') || '', fn: fn.replace(/^api_/, ''), args: args });
+// 1回だけ送る。rid（依頼番号）を付けた書き込みは、同じ番号で送り直してもGoogle側で1回分しか登録されない
+function rawCall(fn, args, rid) {
+  const body = JSON.stringify({ token: store('zaiko_token') || '', fn: fn.replace(/^api_/, ''), args: args, rid: rid || '' });
   // Content-Type を付けない（text/plain）ことで、事前確認なしで Google に送れる
-  return fetch(API_URL, { method: 'POST', body: body }).then(function (r) { return r.json(); }).then(function (res) {
+  return fetch(API_URL, { method: 'POST', body: body }).then(function (r) { return r.json(); }).catch(function () {
+    const e = new Error('通信できませんでした'); e.net = e.retry = true; throw e;
+  }).then(function (res) {
     if (res.ok) return res.result;
-    if (res.auth) { askToken('合言葉が違うか、作り直されています。もう一度入れてください。'); }
-    else toast('エラー：' + res.error);
-    throw new Error(res.error);
-  }, function (e) {
-    toast('通信できませんでした。電波を確認してもう一度押してください');
-    throw e;
+    const e = new Error(res.error); e.auth = !!res.auth; e.retry = /混み合/.test(res.error || ''); throw e;
   });
+}
+function report(e) {
+  if (e.auth) askToken('合言葉が違うか、作り直されています。もう一度入れてください。');
+  else if (e.net) toast('通信できませんでした。電波を確認してもう一度押してください');
+  else if (e.retry) toast('混み合っていて登録できませんでした。少し待ってもう一度押してください');
+  else toast('エラー：' + e.message);
+}
+// 読み込み：call('api_load')
+function call(fn) {
+  return rawCall(fn, Array.prototype.slice.call(arguments, 1), '').catch(function (e) { report(e); throw e; });
+}
+// 書き込み：1件ずつ順番に送る（同時に送ると Google 側で順番待ちになり「混み合っています」になる）。
+// 通信エラー・混み合いのときは自動で3回まで送り直す
+let QUEUE = Promise.resolve();
+function newRid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function queued(fn, args, rid) {
+  const tryOnce = function (n) {
+    return rawCall(fn, args, rid).catch(function (e) {
+      if (!e.retry || n >= 3) throw e;
+      return new Promise(function (ok) { setTimeout(ok, 2000 * (n + 1)); }).then(function () { return tryOnce(n + 1); });
+    });
+  };
+  const p = QUEUE.then(function () { return tryOnce(0); });
+  QUEUE = p.catch(function () {});
+  return p;
+}
+function send(fn) {
+  return queued(fn, Array.prototype.slice.call(arguments, 1), newRid()).catch(function (e) { report(e); throw e; });
+}
+// 登録中は画面のボタンを押せなくする（二重に押して2件登録されるのを防ぐ）
+function busy(on, label) {
+  document.querySelectorAll('#sheet-body .btn').forEach(function (b) { b.disabled = on; });
+  const w = $('busy');
+  if (w) w.innerHTML = on ? '<div class="msg info">' + (label || '登録しています…') + '（そのままお待ちください）</div>' : '';
 }
 
 /** 合言葉を入れる画面 */
@@ -189,7 +220,7 @@ function start() {
   let cached = null;
   try { cached = JSON.parse(store('zaiko_cache') || 'null'); } catch (e) { cached = null; }
   if (cached) { render(cached); if (START_ID) openItem(START_ID); }
-  load().then(function () { if (START_ID && !cached) openItem(START_ID); }).catch(function () {});
+  load().then(function () { if (START_ID && !cached) openItem(START_ID); flushOutbox(); }).catch(function () {});
 }
 function load() {
   return call('api_load').then(function (d) {
@@ -200,6 +231,7 @@ function load() {
 function render(d) {
   D = d;
   $('mode').style.display = d.mode === 'test' ? 'inline-block' : 'none';   // テスト用コピーを見ているときだけ「テスト」と出す
+  applyOutbox();
   fillStaff(); fillPlaces();
   drawMat(); drawSub(); drawTana(); drawLabel();
 }
@@ -225,10 +257,11 @@ function fillStaff() {
 }
 function fillPlaces() {
   const opt = function (list) { return '<option value="">すべての場所</option>' + list.map(function (p) { return '<option>' + esc(p) + '</option>'; }).join(''); };
-  const pm = $('p-mat').value, ps = $('p-sub').value;
+  const pm = $('p-mat').value, ps = $('p-sub').value, cs = $('c-sub').value;
   $('p-mat').innerHTML = opt(uniq(D.materials.map(function (m) { return m.place; })));
   $('p-sub').innerHTML = opt(uniq(D.subs.map(function (m) { return m.place; })));
-  $('p-mat').value = pm; $('p-sub').value = ps;
+  $('c-sub').innerHTML = '<option value="">すべての取引先</option>' + uniq(D.subs.map(function (m) { return m.cust; })).map(function (p) { return '<option>' + esc(p) + '</option>'; }).join('');
+  $('p-mat').value = pm; $('p-sub').value = ps; $('c-sub').value = cs;
 }
 function uniq(a) { return a.filter(function (x, i) { return x && a.indexOf(x) === i; }).sort(); }
 function find(id) {
@@ -259,8 +292,8 @@ function drawMat() {
   }).join('') || '<p class="muted">該当なし</p>';
 }
 function drawSub() {
-  const q = $('q-sub').value.trim().toLowerCase(), p = $('p-sub').value;
-  const list = D.subs.filter(function (m) { return (!p || m.place === p) && (!q || (m.name + ' ' + m.cust + ' ' + m.id).toLowerCase().indexOf(q) >= 0); })
+  const q = $('q-sub').value.trim().toLowerCase(), p = $('p-sub').value, cu = $('c-sub').value;
+  const list = D.subs.filter(function (m) { return (!p || m.place === p) && (!cu || m.cust === cu) && (!q || (m.name + ' ' + m.cust + ' ' + m.id).toLowerCase().indexOf(q) >= 0); })
     .sort(function (a, b) { return a.cust.localeCompare(b.cust, 'ja') || a.name.localeCompare(b.name, 'ja'); });
   $('list-sub').innerHTML = list.map(function (m) {
     return '<div class="item" onclick="openItem(\'' + m.id + '\')"><div><div class="n">' + esc(m.name) + '</div><div class="s">' + esc(m.cust) + '　' + esc(m.place) + '</div></div><div class="q">' + num(m.qty) + '</div></div>';
@@ -285,7 +318,8 @@ function openItem(id) {
     + (qty <= 0 ? '<div class="empty-big">在庫がありません<small>帳簿の数量が0です</small></div>'
       : '<div><span class="big">' + num(qty) + '</span><span class="unit">' + (mat ? 'kg' : '個・枚') + '</span></div>')
     + '<div class="muted">' + placeText(it) + (it.note ? '　' + esc(it.note) : '') + '　更新 ' + esc(it.date) + '</div>'
-    + '<div class="card"><b>数量を直す</b><input id="fix" type="number" inputmode="decimal" value="' + qty + '"><button class="btn sub" onclick="doChange(\'' + f.kind + '\',\'' + it.id + '\',\'set\')">この数量に直す</button></div>'
+    + '<div id="busy"></div>'
+    + '<div class="card"><b>数量を直す</b><input id="fix" type="number" inputmode="decimal" placeholder="正しい数量（今 ' + num(qty) + '）"><button class="btn sub" onclick="doChange(\'' + f.kind + '\',\'' + it.id + '\',\'set\')">この数量に直す</button></div>'
     + '<div class="card"><b>置き場を移す</b><label class="f">保管場所</label><select id="mv-place">' + places.map(function (p) { return '<option' + (p === it.place ? ' selected' : '') + '>' + esc(p) + '</option>'; }).join('') + '</select>'
     + (mat ? '<label class="f">保管列（例：5-2）</label><input id="mv-col" value="' + esc(it.col) + '">' : '')
     + '<button class="btn sub" onclick="doChange(\'' + f.kind + '\',\'' + it.id + '\',\'move\')">移す</button></div>'
@@ -311,14 +345,26 @@ function doChange(kind, id, op, val) {
   if (!staff()) { toast('先に右上で担当者を選んでください'); return; }
   let amount = 0, place = '', col = '';
   if (op === 'use' || op === 'add') { amount = Number($('amt').value); if (!(amount > 0)) { toast('数量を入れてください'); return; } }
-  if (op === 'set') { amount = val !== undefined ? val : Number($('fix').value); if (isNaN(amount) || amount < 0) { toast('数量が正しくありません'); return; } }
+  if (op === 'set') {
+    if (val === undefined && $('fix').value.trim() === '') { toast('正しい数量を入れてください'); return; }
+    amount = val !== undefined ? val : Number($('fix').value);
+    if (isNaN(amount) || amount < 0) { toast('数量が正しくありません'); return; }
+  }
   if (op === 'move') { place = $('mv-place').value; col = $('mv-col') ? $('mv-col').value.trim() : ''; }
-  document.querySelectorAll('#sheet-body .btn').forEach(function (b) { b.disabled = true; });
-  call('api_change', kind, id, op, amount, place, col, staff(), '').then(function (r) {
+  busy(true);
+  send('api_change', kind, id, op, amount, place, col, staff(), '').then(function (r) {
+    // 一覧はすぐ直しておき、Googleからの読み直しは裏で行う
+    const f = find(id);
+    if (f) {
+      if (op === 'move') { f.it.place = place; if (kind === 'mat') f.it.col = col; }
+      else if (kind === 'mat') f.it.kg = r.after; else f.it.qty = r.after;
+      if (r.removed) D.materials.splice(D.materials.indexOf(f.it), 1);
+      drawMat(); drawSub(); drawTana();
+    }
     closeSheet();
     toast(r.removed ? '使い切りにしました' : '登録しました（残り ' + num(r.after) + (kind === 'mat' ? ' kg' : '') + '）');
-    return load();
-  }).catch(function () { document.querySelectorAll('#sheet-body .btn').forEach(function (b) { b.disabled = false; }); });
+    load().catch(function () {});
+  }).catch(function () { busy(false); });
 }
 
 /* ---------- 入荷 ---------- */
@@ -334,7 +380,7 @@ function openReceive(kind) {
     + '<label class="f">' + (mat ? '重さ（kg）' : '数量') + '</label><input id="r-amt" type="number" inputmode="decimal" value="' + (mat ? 500 : '') + '">'
     + '<label class="f">保管場所</label><select id="r-place">' + places.map(function (p) { return '<option>' + esc(p) + '</option>'; }).join('') + '</select>'
     + (mat ? '<label class="f">保管列（なくても可）</label><input id="r-col"><label class="f">補足（なくても可）</label><input id="r-extra">' : '')
-    + '<button class="btn" onclick="doReceive(\'' + kind + '\')">登録する</button>');
+    + '<div id="busy"></div><button class="btn" onclick="doReceive(\'' + kind + '\')">登録する</button>');
 }
 /** 副資材：名前を選んだら取引先を自動で入れる */
 function fillCust() {
@@ -347,13 +393,18 @@ function doReceive(kind) {
   const name = $('r-name').value.trim(), amt = Number($('r-amt').value);
   if (!name || !(amt > 0)) { toast('名前と数量を入れてください'); return; }
   const col = $('r-col') ? $('r-col').value.trim() : '', extra = $('r-extra') ? $('r-extra').value.trim() : '';
-  call('api_receive', kind, name, amt, $('r-place').value, col, extra, staff()).then(function (id) {
-    return load().then(function () {
-      openSheet('<h2>登録しました</h2><p>' + esc(name) + '　' + num(amt) + (kind === 'mat' ? ' kg' : '') + '<br><span class="muted">ID ' + esc(id) + '</span></p>'
-        + '<button class="btn" onclick="closeSheet();$(\'l-kind\').value=\'' + kind + '\';$(\'l-filter\').value=\'new\';show(\'label\');drawLabel()">ラベルを印刷する</button>'
-        + '<button class="btn sub" onclick="closeSheet()">あとで</button>');
-    });
-  });
+  const place = $('r-place').value;
+  busy(true);
+  send('api_receive', kind, name, amt, place, col, extra, staff()).then(function (id) {
+    // 登録できたらすぐ知らせる（一覧の読み直しは裏で）
+    if (kind === 'mat') D.materials.push({ id: id, name: name, kg: amt, place: place, col: col, note: extra, date: '今日' });
+    else D.subs.push({ id: id, cust: extra, name: name, qty: amt, place: place, date: '今日' });
+    drawMat(); drawSub(); drawTana(); drawLabel();
+    openSheet('<h2>登録しました</h2><p>' + esc(name) + '　' + num(amt) + (kind === 'mat' ? ' kg' : '') + '<br><span class="muted">ID ' + esc(id) + '</span></p>'
+      + '<button class="btn" onclick="closeSheet();$(\'l-kind\').value=\'' + kind + '\';$(\'l-filter\').value=\'new\';show(\'label\');drawLabel()">ラベルを印刷する</button>'
+      + '<button class="btn sub" onclick="closeSheet()">あとで</button>');
+    load().catch(function () {});
+  }).catch(function () { busy(false); });
 }
 
 /* ---------- カメラ ---------- */
@@ -459,7 +510,7 @@ function drawTana() {
   // 確認カードはカメラより上に出す（読んだあとスクロールせずに押せるように）
   $('tana').innerHTML = '<div class="card" id="tana-top"><div class="muted">棚卸番号 ' + esc(t.no) + '</div>'
     + '<div><b>' + done.length + '</b> / ' + all.length + ' 件 確認済み（' + pct + '%）</div><div class="prog"><div style="width:' + pct + '%"></div></div>'
-    + '<div id="tana-msg"></div><div id="tana-card"></div>'
+    + '<div id="tana-out"></div><div id="tana-msg"></div><div id="tana-card"></div>'
     + '<div id="tana-cam-ph"></div>'
     + '<button class="btn" onclick="startCam(\'tana\')">カメラで続けて読む</button>'
     + '<button class="btn sub" onclick="camMode=\'tana\';document.getElementById(\'photo\').click()">写真を撮って読む</button></div>'
@@ -473,6 +524,7 @@ function drawTana() {
     + (rest ? '<button class="btn sub" style="margin-top:24px" onclick="openClear()">確認していないものを見直して消す（' + rest + '件）</button>' : '')
     + '<button class="btn ng" style="margin-top:' + (rest ? 8 : 24) + 'px" onclick="tanaEnd(' + rest + ')">棚卸を終える</button>';
   drawTanaList();
+  drawOutbox();
   // カメラの枠は描き直しても作り直さない（動いているカメラをそのまま差し込む）
   $('tana-cam-ph').replaceWith(tanaCamBox());
   if (stream && $('tana-video').srcObject === stream) $('tana-video').play().catch(function () {});
@@ -531,7 +583,10 @@ function tanaEnd(rest) {
   }
   if (confirm('棚卸を終えますか？')) doTanaEnd();
 }
-function doTanaEnd() { stopCam(); call('api_tanaEnd').then(load); }
+function doTanaEnd() {
+  if (OUTBOX.length) { closeSheet(); toast('まだ送っていない記録が ' + OUTBOX.length + ' 件あります。送り終わってから終えてください'); flushOutbox(); return; }
+  stopCam(); call('api_tanaEnd').then(load);
+}
 
 /** 確認していない材料を一覧にして、選んだものだけ0にする（最初はどれも選ばれていない） */
 function openClear() {
@@ -566,7 +621,7 @@ function doClear() {
   if (!ids.length) return;
   if (!confirm(ids.length + ' 件を「現物なし」として0にし、在庫から消します。\nよろしいですか？')) return;
   $('clear-go').disabled = true; $('clear-go').textContent = '消しています…';
-  call('api_tanaClear', ids, staff()).then(function (n) {
+  send('api_tanaClear', ids, staff()).then(function (n) {
     closeSheet();
     toast(n + ' 件を消しました');
     return load();
@@ -584,42 +639,99 @@ function tanaRead(id) {
   }
   const it = f.it, mat = f.kind === 'mat', q = mat ? it.kg : it.qty;
   const again = D.tana.done[tanaKey(f.kind, it.id)];
+  let places = D.settings.places;
+  if (it.place && places.indexOf(it.place) < 0) places = [it.place].concat(places);
   msg('tana-msg', '', '');
   if ($('tana-cam')) $('tana-cam').style.display = 'none';   // 確認中はカメラを隠す（カードがカメラの位置に来る）
   $('tana-card').innerHTML = '<div class="card" style="border:3px solid var(--accent)">'
     + (again ? '<div class="msg info">読み取り済みです（' + esc(again.at) + '）。もう一度登録できます。</div>' : '')
     + '<div class="n" style="font-size:20px;font-weight:bold">' + esc(it.name) + '</div><div class="muted">' + placeText(it) + '　ID ' + esc(it.id) + '</div>'
     + '<div>帳簿：<span class="big" style="font-size:32px">' + num(q) + '</span><span class="unit">' + (mat ? 'kg' : '') + '</span></div>'
+    // 置き場が変わっていたら、ここで直してから登録する（登録と一緒に移す）
+    + '<details style="background:#f6f8fb;margin:6px 0"><summary>置き場が違うとき（ここで直す）</summary>'
+    + '<select id="tana-place">' + places.map(function (p) { return '<option' + (p === it.place ? ' selected' : '') + '>' + esc(p) + '</option>'; }).join('') + '</select>'
+    + (mat ? '<input id="tana-col" placeholder="保管列（例：5-2）" value="' + esc(it.col) + '" style="margin:6px 0">' : '')
+    + '<div class="muted">直したら、下の「このまま」か「直して登録」を押すと一緒に移ります</div></details>'
     + '<button class="btn ok" onclick="tanaSave(\'' + f.kind + '\',\'' + it.id + '\',null)">このまま（帳簿どおり）</button>'
     + '<div class="row2"><input id="tana-q" type="number" inputmode="decimal" placeholder="実際の数"><button class="btn warn" style="margin:0" onclick="tanaSave(\'' + f.kind + '\',\'' + it.id + '\',$(\'tana-q\').value)">直して登録</button></div>'
-    + '<button class="btn ng" onclick="if(confirm(\'「' + esc(it.name).replace(/'/g, '') + '」は現物なしとして0にしますか？\\n（使い切りに移ります）\'))tanaSave(\'' + f.kind + '\',\'' + it.id + '\',0)">現物なし（0にする）</button>'
+    + '<button class="btn ng" onclick="if(confirm(\'この材料を現物なしとして0にしますか？\\n（使い切りに移ります）\'))tanaSave(\'' + f.kind + '\',\'' + it.id + '\',0)">現物なし（0にする）</button>'
     + '<button class="btn sub" onclick="$(\'tana-card\').innerHTML=\'\';resume()">やめる</button></div>';
   tanaTop();
 }
 function tanaSave(kind, id, qty) {
   if (!staff()) { toast('先に右上で担当者を選んでください'); return; }
   if (qty !== null && (qty === '' || isNaN(Number(qty)))) { toast('実際の数を入れてください'); return; }
-  // Googleへの記録（1〜3秒かかる）は待たずに次の読み取りへ進む。記録できなかったときだけ知らせる
+  // Googleへの記録は待たずに次の読み取りへ進む。記録はいったん端末の「送信待ち」に入れ、1件ずつ順番に送る
   const f = find(id);
   const book = f ? (kind === 'mat' ? f.it.kg : f.it.qty) : 0;
   const q = qty === null ? book : Number(qty);
-  D.tana.done[tanaKey(kind, id)] = { qty: q, at: '今', staff: staff() };
-  if (f) { if (kind === 'mat') f.it.kg = q; else f.it.qty = q; }
+  // 置き場が変わっていれば一緒に送る（変わっていなければ空）
+  let place = '', col = '';
+  if (f && $('tana-place')) {
+    const np = $('tana-place').value, nc = $('tana-col') ? $('tana-col').value.trim() : (f.it.col || '');
+    if (np !== f.it.place || nc !== (f.it.col || '')) { place = np; col = nc; }
+  }
+  OUTBOX.push({ rid: newRid(), args: [kind, id, qty === null ? null : Number(qty), staff(), place, col], name: f ? f.it.name : id });
+  saveOutbox();
+  applyOutbox();
   const live = !!stream && camMode === 'tana';
   ignore = { id: id, until: Date.now() + 3000 };   // カメラがまだ同じパレットを向いているので、3秒間は読み直さない
-  toast(q === book ? '記録しました' : '記録して在庫を直しました');
+  toast((q === book ? '記録しました' : '記録して在庫を直しました') + (place ? '（置き場も移します）' : ''));
   drawTana();
   tanaTop();
   if (live) resume();
-  call('api_tanaScan', kind, id, qty === null ? null : Number(qty), staff()).then(function (r) {
-    if (r.qty === 0 && kind === 'mat') load();
-  }).catch(function () {
-    delete D.tana.done[tanaKey(kind, id)];
-    drawTana();
-    if (live) resume();
-    msg('tana-msg', 'ng', '「' + esc(f ? f.it.name : id) + '」を記録できませんでした。もう一度読んでください。');
+  flushOutbox();
+}
+
+/* ---------- 棚卸の送信待ち（電波が悪くても記録が消えないよう、端末に残してから送る） ---------- */
+let OUTBOX = [];
+try { OUTBOX = JSON.parse(store('zaiko_outbox') || '[]') || []; } catch (e) { OUTBOX = []; }
+let flushing = false, flushTimer = null, needLoad = false;
+function saveOutbox() { store('zaiko_outbox', JSON.stringify(OUTBOX)); }
+/** 送信待ちの記録を画面のデータに重ねる（Googleから読み直しても「確認済み」が消えないように） */
+function applyOutbox() {
+  if (!D || !D.tana) return;
+  OUTBOX.forEach(function (x) {
+    const kind = x.args[0], id = x.args[1], f = find(id);
+    if (!f) return;
+    const q = x.args[2] === null ? (kind === 'mat' ? f.it.kg : f.it.qty) : x.args[2];
+    if (kind === 'mat') f.it.kg = q; else f.it.qty = q;
+    if (x.args[4]) { f.it.place = x.args[4]; if (kind === 'mat') f.it.col = x.args[5]; }
+    D.tana.done[tanaKey(kind, id)] = { qty: q, at: '送信待ち', staff: x.args[3] };
   });
 }
+function drawOutbox() {
+  const el = $('tana-out');
+  if (!el) return;
+  el.innerHTML = !OUTBOX.length ? ''
+    : '<div class="msg info" style="display:flex;align-items:center;gap:8px"><div style="flex:1">' + (flushing ? 'Googleに送っています…' : '送信待ち') + ' <b>' + OUTBOX.length + '件</b>（自動で送ります。このまま続けて大丈夫）</div>'
+      + (flushing ? '' : '<button class="btn sub" style="width:auto;margin:0;padding:6px 12px;font-size:15px" onclick="flushOutbox()">今すぐ送る</button>') + '</div>';
+}
+function flushOutbox() {
+  clearTimeout(flushTimer);
+  if (flushing || !OUTBOX.length) { drawOutbox(); return; }
+  flushing = true; drawOutbox();
+  const x = OUTBOX[0];
+  queued('api_tanaScan', x.args, x.rid).then(function (r) {
+    OUTBOX.shift(); saveOutbox();
+    if (r.qty === 0 || r.moved) needLoad = true;
+    flushing = false;
+    if (OUTBOX.length) { flushOutbox(); return; }
+    drawOutbox();
+    if (needLoad) { needLoad = false; load().catch(function () {}); }
+  }, function (e) {
+    flushing = false;
+    if (e.auth) { report(e); drawOutbox(); return; }
+    if (e.retry) { drawOutbox(); flushTimer = setTimeout(flushOutbox, 20000); return; }   // 電波・混み合い：残して20秒後にもう一度
+    // それ以外（材料が消されていた・棚卸が終わっていた等）：その1件は外して知らせる
+    OUTBOX.shift(); saveOutbox();
+    delete D.tana.done[tanaKey(x.args[0], x.args[1])];
+    drawTana();
+    msg('tana-msg', 'ng', '「' + esc(x.name) + '」を記録できませんでした（' + esc(e.message) + '）。もう一度読んでください。');
+    flushOutbox();
+  });
+}
+window.addEventListener('online', function () { flushOutbox(); });
 function resume() {
   if (stream && camMode === 'tana' && !scanning) { $('tana-cam').style.display = 'block'; scanning = true; loop($('tana-video')); }
 }
@@ -656,7 +768,7 @@ function printLabels() {
   setTimeout(function () {
     window.print();
     setTimeout(function () {
-      if (confirm(ids.length + '枚を「印刷済み」にしますか？\n（うまく印刷できなかったときは「キャンセル」）')) call('api_printed', ids).then(load);
+      if (confirm(ids.length + '枚を「印刷済み」にしますか？\n（うまく印刷できなかったときは「キャンセル」）')) send('api_printed', ids).then(load);
     }, 500);
   }, 300);
 }
