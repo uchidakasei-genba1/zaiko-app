@@ -85,7 +85,7 @@ details summary { padding:8px 0; font-weight:bold; }
 </head>
 <body>
 <header>
-  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v4</small></h1>
+  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v6</small></h1>
   <select id="staff" onchange="saveStaff()"></select>
   <button onclick="askToken('')" aria-label="合言葉の設定" style="border:0;background:none;color:#fff;padding:4px"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></svg></button>
 </header>
@@ -185,14 +185,22 @@ function saveToken() {
 }
 function start() {
   if (!store('zaiko_token')) { askToken(''); return; }
-  load().then(function () { if (START_ID) openItem(START_ID); }).catch(function () {});
+  // 前回読んだデータがあれば先に出す（Googleからの読み込みは数秒かかるため）。新しいデータが届いたら描き直す
+  let cached = null;
+  try { cached = JSON.parse(store('zaiko_cache') || 'null'); } catch (e) { cached = null; }
+  if (cached) { render(cached); if (START_ID) openItem(START_ID); }
+  load().then(function () { if (START_ID && !cached) openItem(START_ID); }).catch(function () {});
 }
 function load() {
   return call('api_load').then(function (d) {
-    D = d;
-    fillStaff(); fillPlaces();
-    drawMat(); drawSub(); drawTana(); drawLabel();
+    render(d);
+    try { store('zaiko_cache', JSON.stringify(d)); } catch (e) {}
   });
+}
+function render(d) {
+  D = d;
+  fillStaff(); fillPlaces();
+  drawMat(); drawSub(); drawTana(); drawLabel();
 }
 
 /* ---------- 共通 ---------- */
@@ -346,6 +354,13 @@ function startCam(mode) {
   camMode = mode;
   const box = mode === 'tana' ? $('tana-cam') : $('cam');
   const video = mode === 'tana' ? $('tana-video') : $('video');
+  // すでに同じ画面でカメラが動いていれば、そのまま読み取りを再開（iPhoneはカメラを開き直すと数秒止まるため）
+  if (stream && video.srcObject === stream) {
+    box.style.display = 'block'; video.play().catch(function () {});
+    if (!scanning) { scanning = true; loop(video); }
+    return;
+  }
+  if (stream) stopCam();   // 別の画面で動いていたカメラは止めてから開く（二重に開くと固まる）
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { camFail(); return; }
   navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }).then(function (s) {
     stream = s; video.srcObject = s; box.style.display = 'block';
@@ -370,18 +385,27 @@ function stopCam() {
 const canvas = document.createElement('canvas');
 function loop(video) {
   if (!scanning) return;
-  const next = function () { setTimeout(function () { loop(video); }, 250); };
+  const next = function () { setTimeout(function () { loop(video); }, 120); };
   if (!video.videoWidth) { next(); return; }
   if (detector) {
-    detector.detect(video).then(function (r) { if (r.length) found(r[0].rawValue); else next(); }).catch(function () { detector = null; next(); });
+    detector.detect(video).then(function (r) { if (r.length) hit(r[0].rawValue); else next(); }).catch(function () { detector = null; next(); });
     return;
   }
-  const w = Math.min(640, video.videoWidth), h = Math.round(video.videoHeight * w / video.videoWidth);
-  canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext('2d'); ctx.drawImage(video, 0, 0, w, h);
-  const code = jsQR(ctx.getImageData(0, 0, w, h).data, w, h);
-  if (code && code.data) found(code.data); else next();
+  // iPhone（BarcodeDetector なし）：画面中央の枠のあたりだけを小さくして読む（全体を読むより何倍も速い）
+  const vw = video.videoWidth, vh = video.videoHeight, side = Math.round(Math.min(vw, vh) * 0.8);
+  const sx = Math.round((vw - side) / 2), sy = Math.round((vh - side) / 2), n = Math.min(480, side);
+  canvas.width = n; canvas.height = n;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(video, sx, sy, side, side, 0, 0, n, n);
+  const code = jsQR(ctx.getImageData(0, 0, n, n).data, n, n, { inversionAttempts: 'dontInvert' });
+  if (code && code.data) hit(code.data); else next();
+  function hit(text) {
+    // 「在庫がありません」と出したばかりの同じQRは、3秒間は読み直さない（同じ表示を繰り返して重くならないように）
+    if (ignore.id && ignore.id === idFrom(text) && Date.now() < ignore.until) { next(); return; }
+    found(text);
+  }
 }
+let ignore = { id: '', until: 0 };
 function readPhoto(input) {
   const f = input.files && input.files[0]; input.value = '';
   if (!f) return;
@@ -409,7 +433,7 @@ function found(text, fromPhoto) {
 function tanaKey(kind, id) { return (kind === 'sub' ? '副資材' : '材料') + '|' + id; }
 function drawTana() {
   const t = D.tana;
-  const howto = '<div class="howto"><b>棚卸のやり方</b><br>'
+  const howto = '<div class="howto"><b>棚卸のやり方</b>（材料だけ。副資材は対象外）<br>'
     + '1. 「棚卸を始める」を押す<br>'
     + '2. <b>QRがあるもの</b>：「カメラで続けて読む」でQRにかざす → 数を見て「このまま」か「直して登録」→ 自動で次のカメラに戻る<br>'
     + '3. <b>QRが無い・読めないもの</b>：下の「QRなしで確認」で名前を入れて探し、押して同じように登録<br>'
@@ -427,10 +451,10 @@ function drawTana() {
   $('tana').innerHTML = '<div class="card" id="tana-top"><div class="muted">棚卸番号 ' + esc(t.no) + '</div>'
     + '<div><b>' + done.length + '</b> / ' + all.length + ' 件 確認済み（' + pct + '%）</div><div class="prog"><div style="width:' + pct + '%"></div></div>'
     + '<div id="tana-msg"></div><div id="tana-card"></div>'
-    + '<div id="tana-cam" style="position:relative;background:#000;border-radius:12px;overflow:hidden;display:none"><video id="tana-video" playsinline muted style="width:100%;display:block"></video><div class="frame" style="position:absolute;inset:18%;border:4px solid rgba(255,255,255,.85);border-radius:12px"></div></div>'
+    + '<div id="tana-cam-ph"></div>'
     + '<button class="btn" onclick="startCam(\'tana\')">カメラで続けて読む</button>'
     + '<button class="btn sub" onclick="camMode=\'tana\';document.getElementById(\'photo\').click()">写真を撮って読む</button></div>'
-    + '<h3>QRなしで確認</h3><input id="tana-find" placeholder="材料名・資材名で探す" oninput="drawTanaList()">'
+    + '<h3>QRなしで確認</h3><input id="tana-find" placeholder="材料名で探す" oninput="drawTanaList()">'
     + '<div id="tana-list"></div>'
     + '<details><summary>確認済み（' + done.length + '）</summary>' + done.map(function (x) {
       const r = t.done[tanaKey(x.kind, x.it.id)];
@@ -439,10 +463,23 @@ function drawTana() {
     + '<details><summary>棚卸のやり方</summary>' + howto + '</details>'
     + '<button class="btn ng" style="margin-top:24px" onclick="tanaEnd(' + rest + ')">棚卸を終える</button>';
   drawTanaList();
+  // カメラの枠は描き直しても作り直さない（動いているカメラをそのまま差し込む）
+  $('tana-cam-ph').replaceWith(tanaCamBox());
+  if (stream && $('tana-video').srcObject === stream) $('tana-video').play().catch(function () {});
 }
+let tanaCamEl = null;
+function tanaCamBox() {
+  if (!tanaCamEl) {
+    tanaCamEl = document.createElement('div');
+    tanaCamEl.id = 'tana-cam';
+    tanaCamEl.style.cssText = 'position:relative;background:#000;border-radius:12px;overflow:hidden;display:none';
+    tanaCamEl.innerHTML = '<video id="tana-video" playsinline muted style="width:100%;display:block"></video><div class="frame" style="position:absolute;inset:18%;border:4px solid rgba(255,255,255,.85);border-radius:12px"></div>';
+  }
+  return tanaCamEl;
+}
+// 棚卸は材料だけ（副資材は対象外）
 function tanaAll() {
-  return D.materials.filter(function (m) { return m.kg > 0; }).map(function (m) { return { kind: 'mat', it: m }; })
-    .concat(D.subs.map(function (m) { return { kind: 'sub', it: m }; }));
+  return D.materials.filter(function (m) { return m.kg > 0; }).map(function (m) { return { kind: 'mat', it: m }; });
 }
 /** まだ確認していないもの（名前で絞り込み。絞り込み中は場所でまとめずに全部出す） */
 function drawTanaList() {
@@ -458,7 +495,7 @@ function drawTanaList() {
     return;
   }
   const byPlace = {};
-  rest.forEach(function (x) { const p = (x.kind === 'sub' ? '副資材：' : '') + (x.it.place || '（場所なし）'); (byPlace[p] = byPlace[p] || []).push(x); });
+  rest.forEach(function (x) { const p = x.it.place || '（場所なし）'; (byPlace[p] = byPlace[p] || []).push(x); });
   $('tana-list').innerHTML = '<p class="muted">まだ確認していない（' + rest.length + '件）：場所を押すと開きます</p>'
     + Object.keys(byPlace).sort().map(function (p) {
       return '<details><summary>' + esc(p) + '（' + byPlace[p].length + '）</summary>' + byPlace[p].map(row).join('') + '</details>';
@@ -480,9 +517,11 @@ function tanaEnd(rest) {
 /** 読んだ1件：帳簿の数を見せて「このまま」か「直す」 */
 function tanaRead(id) {
   const f = find(id);
-  if (!f) {
+  if (!f || f.kind === 'sub') {
     const e = (D.empty || {})[id];
-    $('tana-msg').innerHTML = '<div class="empty-big">在庫がありません<small>' + (e ? esc(e.name) + '　' + esc(e.date) + ' に使い切り' : 'このQRの材料は登録されていません') + '<br>ラベルをはがしてください</small></div>';
+    $('tana-msg').innerHTML = f ? '<div class="msg info">副資材は棚卸の対象外です（' + esc(f.it.name) + '）</div>'
+      : '<div class="empty-big">在庫がありません<small>' + (e ? esc(e.name) + '　' + esc(e.date) + ' に使い切り' : 'このQRの材料は登録されていません') + '<br>ラベルをはがしてください</small></div>';
+    ignore = { id: id, until: Date.now() + 3000 };
     tanaTop(); resume(); return;
   }
   const it = f.it, mat = f.kind === 'mat', q = mat ? it.kg : it.qty;
@@ -501,21 +540,29 @@ function tanaRead(id) {
 function tanaSave(kind, id, qty) {
   if (!staff()) { toast('先に右上で担当者を選んでください'); return; }
   if (qty !== null && (qty === '' || isNaN(Number(qty)))) { toast('実際の数を入れてください'); return; }
-  $('tana-card').querySelectorAll('.btn').forEach(function (b) { b.disabled = true; });
+  // Googleへの記録（1〜3秒かかる）は待たずに次の読み取りへ進む。記録できなかったときだけ知らせる
+  const f = find(id);
+  const book = f ? (kind === 'mat' ? f.it.kg : f.it.qty) : 0;
+  const q = qty === null ? book : Number(qty);
+  D.tana.done[tanaKey(kind, id)] = { qty: q, at: '今', staff: staff() };
+  if (f) { if (kind === 'mat') f.it.kg = q; else f.it.qty = q; }
+  const live = !!stream && camMode === 'tana';
+  ignore = { id: id, until: Date.now() + 3000 };   // カメラがまだ同じパレットを向いているので、3秒間は読み直さない
+  toast(q === book ? '記録しました' : '記録して在庫を直しました');
+  drawTana();
+  tanaTop();
+  if (live) resume();
   call('api_tanaScan', kind, id, qty === null ? null : Number(qty), staff()).then(function (r) {
-    D.tana.done[tanaKey(kind, id)] = { qty: r.qty, at: '今', staff: staff() };
-    const f = find(id); if (f) { if (kind === 'mat') f.it.kg = r.qty; else f.it.qty = r.qty; }
-    const live = !!stream;
-    stopCam();
-    toast(r.qty === r.book ? '記録しました' : '記録して在庫を直しました');
-    drawTana();
-    tanaTop();
-    if (live) startCam('tana');
     if (r.qty === 0 && kind === 'mat') load();
+  }).catch(function () {
+    delete D.tana.done[tanaKey(kind, id)];
+    drawTana();
+    if (live) resume();
+    msg('tana-msg', 'ng', '「' + esc(f ? f.it.name : id) + '」を記録できませんでした。もう一度読んでください。');
   });
 }
 function resume() {
-  if (stream && camMode === 'tana') { $('tana-cam').style.display = 'block'; scanning = true; loop($('tana-video')); }
+  if (stream && camMode === 'tana' && !scanning) { $('tana-cam').style.display = 'block'; scanning = true; loop($('tana-video')); }
 }
 
 /* ---------- ラベル ---------- */
