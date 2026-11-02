@@ -85,7 +85,7 @@ details summary { padding:8px 0; font-weight:bold; }
 </head>
 <body>
 <header>
-  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v7</small> <span id="mode" style="display:none;font-size:13px;background:#e8913a;color:#fff;border-radius:6px;padding:1px 8px;vertical-align:middle">テスト</span></h1>
+  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v9</small> <span id="mode" style="display:none;font-size:13px;background:#e8913a;color:#fff;border-radius:6px;padding:1px 8px;vertical-align:middle">テスト</span></h1>
   <select id="staff" onchange="saveStaff()"></select>
   <button onclick="askToken('')" aria-label="合言葉の設定" style="border:0;background:none;color:#fff;padding:4px"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></svg></button>
 </header>
@@ -470,7 +470,8 @@ function drawTana() {
       return '<div class="item done" onclick="tanaRead(\'' + x.it.id + '\')"><div><div class="n">' + esc(x.it.name) + '</div><div class="s">' + esc(r.at) + '　' + esc(r.staff) + '</div></div><div class="q">' + num(r.qty) + '</div></div>';
     }).join('') + '</details>'
     + '<details><summary>棚卸のやり方</summary>' + howto + '</details>'
-    + '<button class="btn ng" style="margin-top:24px" onclick="tanaEnd(' + rest + ')">棚卸を終える</button>';
+    + (rest ? '<button class="btn sub" style="margin-top:24px" onclick="openClear()">確認していないものを見直して消す（' + rest + '件）</button>' : '')
+    + '<button class="btn ng" style="margin-top:' + (rest ? 8 : 24) + 'px" onclick="tanaEnd(' + rest + ')">棚卸を終える</button>';
   drawTanaList();
   // カメラの枠は描き直しても作り直さない（動いているカメラをそのまま差し込む）
   $('tana-cam-ph').replaceWith(tanaCamBox());
@@ -520,8 +521,56 @@ function tanaStart() {
   call('api_tanaStart').then(load);
 }
 function tanaEnd(rest) {
-  if (!confirm((rest ? 'まだ読んでいないものが ' + rest + ' 件あります。\n' : '') + '棚卸を終えますか？')) return;
-  stopCam(); call('api_tanaEnd').then(load);
+  if (rest) {
+    // 確認していないものがあるときは、見直すか・そのまま終えるかを選んでもらう
+    openSheet('<h2>棚卸を終える</h2><p>まだ確認していない材料が <b>' + rest + ' 件</b>あります。<br>古いデータが残っている場合は、見直して消せます。</p>'
+      + '<button class="btn" onclick="openClear()">見直して消す</button>'
+      + '<button class="btn sub" onclick="closeSheet();doTanaEnd()">消さずに終える（在庫はそのまま）</button>'
+      + '<button class="btn sub" onclick="closeSheet()">棚卸に戻る</button>');
+    return;
+  }
+  if (confirm('棚卸を終えますか？')) doTanaEnd();
+}
+function doTanaEnd() { stopCam(); call('api_tanaEnd').then(load); }
+
+/** 確認していない材料を一覧にして、選んだものだけ0にする（最初はどれも選ばれていない） */
+function openClear() {
+  const rest = tanaAll().filter(function (x) { return !D.tana.done[tanaKey(x.kind, x.it.id)]; });
+  const byPlace = {};
+  rest.forEach(function (x) { const p = x.it.place || '（場所なし）'; (byPlace[p] = byPlace[p] || []).push(x.it); });
+  const keys = Object.keys(byPlace).sort();
+  openSheet('<h2>確認していない材料の見直し</h2>'
+    + '<div class="howto">現物が無いもの（古いデータ）にだけチェックを付けて、下のボタンで消します。<br>消したものは「使い切り」シートと棚卸記録に残り、材料名も名前一覧に残ります。</div>'
+    + keys.map(function (p, i) {
+      return '<details open><summary>' + esc(p) + '（' + byPlace[p].length + '）　<a href="#" onclick="event.preventDefault();clearPick(' + i + ')">この場所を全部選ぶ</a></summary>'
+        + byPlace[p].map(function (m) {
+          return '<label class="item lbl-row"><input type="checkbox" class="cchk g' + i + '" value="' + esc(m.id) + '" onchange="clearCount()"><div style="flex:1"><div class="n">' + esc(m.name) + '</div><div class="s">' + placeText(m) + '　更新 ' + esc(m.date) + '　ID ' + esc(m.id) + '</div></div><div class="q">' + num(m.kg) + '<span class="unit">kg</span></div></label>';
+        }).join('') + '</details>';
+    }).join('')
+    + '<button class="btn ng" id="clear-go" onclick="doClear()" disabled>選んだものを消す（0件）</button>'
+    + '<button class="btn sub" onclick="closeSheet()">やめる</button>');
+}
+function clearPick(i) {
+  const list = document.querySelectorAll('.cchk.g' + i), all = Array.prototype.every.call(list, function (c) { return c.checked; });
+  list.forEach(function (c) { c.checked = !all; });
+  clearCount();
+}
+function clearCount() {
+  const n = document.querySelectorAll('.cchk:checked').length;
+  $('clear-go').textContent = '選んだものを消す（' + n + '件）';
+  $('clear-go').disabled = !n;
+}
+function doClear() {
+  if (!staff()) { toast('先に右上で担当者を選んでください'); return; }
+  const ids = Array.prototype.map.call(document.querySelectorAll('.cchk:checked'), function (c) { return c.value; });
+  if (!ids.length) return;
+  if (!confirm(ids.length + ' 件を「現物なし」として0にし、在庫から消します。\nよろしいですか？')) return;
+  $('clear-go').disabled = true; $('clear-go').textContent = '消しています…';
+  call('api_tanaClear', ids, staff()).then(function (n) {
+    closeSheet();
+    toast(n + ' 件を消しました');
+    return load();
+  }).catch(function () { clearCount(); });
 }
 /** 読んだ1件：帳簿の数を見せて「このまま」か「直す」 */
 function tanaRead(id) {
@@ -543,6 +592,7 @@ function tanaRead(id) {
     + '<div>帳簿：<span class="big" style="font-size:32px">' + num(q) + '</span><span class="unit">' + (mat ? 'kg' : '') + '</span></div>'
     + '<button class="btn ok" onclick="tanaSave(\'' + f.kind + '\',\'' + it.id + '\',null)">このまま（帳簿どおり）</button>'
     + '<div class="row2"><input id="tana-q" type="number" inputmode="decimal" placeholder="実際の数"><button class="btn warn" style="margin:0" onclick="tanaSave(\'' + f.kind + '\',\'' + it.id + '\',$(\'tana-q\').value)">直して登録</button></div>'
+    + '<button class="btn ng" onclick="if(confirm(\'「' + esc(it.name).replace(/'/g, '') + '」は現物なしとして0にしますか？\\n（使い切りに移ります）\'))tanaSave(\'' + f.kind + '\',\'' + it.id + '\',0)">現物なし（0にする）</button>'
     + '<button class="btn sub" onclick="$(\'tana-card\').innerHTML=\'\';resume()">やめる</button></div>';
   tanaTop();
 }
