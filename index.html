@@ -85,7 +85,7 @@ details summary { padding:8px 0; font-weight:bold; }
 </head>
 <body>
 <header>
-  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v11</small> <span id="mode" style="display:none;font-size:13px;background:#e8913a;color:#fff;border-radius:6px;padding:1px 8px;vertical-align:middle">テスト</span></h1>
+  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v12</small> <span id="mode" style="display:none;font-size:13px;background:#e8913a;color:#fff;border-radius:6px;padding:1px 8px;vertical-align:middle">テスト</span></h1>
   <select id="staff" onchange="saveStaff()"></select>
   <button onclick="askToken('')" aria-label="合言葉の設定" style="border:0;background:none;color:#fff;padding:4px"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></svg></button>
 </header>
@@ -126,7 +126,8 @@ details summary { padding:8px 0; font-weight:bold; }
       <select id="l-kind" onchange="drawLabel()"><option value="mat">材料</option><option value="sub">副資材</option></select>
       <select id="l-filter" onchange="drawLabel()"><option value="new">未印刷だけ</option><option value="all">すべて</option></select>
     </div>
-    <input id="q-label" placeholder="名前で絞り込む" oninput="drawLabel()" style="margin-top:8px">
+    <div class="row2" style="margin-top:8px"><select id="l-place" onchange="drawLabel()"></select><input id="q-label" placeholder="名前で絞り込む" oninput="drawLabel()"></div>
+    <label class="lbl-row" style="margin:8px 2px;font-size:16px"><input type="checkbox" id="l-split" checked>場所ごとに用紙を分けて印刷する（場所が変わると次の用紙から）</label>
     <div class="row2"><button class="btn sub" onclick="checkAll(true)">全部選ぶ</button><button class="btn sub" onclick="checkAll(false)">全部外す</button></div>
     <button class="btn" onclick="printLabels()">選んだラベルを印刷（A4・8面）</button>
     <div id="list-label"></div>
@@ -740,13 +741,29 @@ function resume() {
 function drawLabel() {
   if (!D) return;
   const kind = $('l-kind').value, onlyNew = $('l-filter').value === 'new', q = $('q-label').value.trim().toLowerCase();
-  const list = (kind === 'mat' ? D.materials.filter(function (m) { return m.kg > 0; }) : D.subs).filter(function (m) { return (!onlyNew || !D.printed[m.id]) && (!q || m.name.toLowerCase().indexOf(q) >= 0); })
-    .sort(function (a, b) { return a.name.localeCompare(b.name, 'ja'); });
-  $('list-label').innerHTML = '<p class="muted">' + list.length + '件</p>' + list.map(function (m) {
-    return '<label class="item lbl-row"><input type="checkbox" class="lchk" value="' + esc(m.id) + '" checked><div style="flex:1"><div class="n">' + esc(m.name) + '</div><div class="s">' + placeText(m) + (D.printed[m.id] ? '　印刷済 ' + esc(D.printed[m.id]) : '') + '</div></div><div class="q">' + num(kind === 'mat' ? m.kg : m.qty) + '</div></label>';
+  const src = kind === 'mat' ? D.materials.filter(function (m) { return m.kg > 0; }) : D.subs;
+  // 場所の選択肢（材料・副資材を切り替えたら作り直す）
+  const ps = $('l-place'), pv = ps.dataset.kind === kind ? ps.value : '';
+  ps.innerHTML = '<option value="">すべての場所</option>' + uniq(src.map(function (m) { return m.place || '（場所なし）'; })).map(function (p) { return '<option>' + esc(p) + '</option>'; }).join('');
+  ps.value = pv; ps.dataset.kind = kind;
+  const list = src.filter(function (m) { return (!onlyNew || !D.printed[m.id]) && (!ps.value || (m.place || '（場所なし）') === ps.value) && (!q || m.name.toLowerCase().indexOf(q) >= 0); });
+  // 場所ごとにまとめる（場所の中は列→名前の順）
+  const byPlace = {};
+  list.forEach(function (m) { const p = m.place || '（場所なし）'; (byPlace[p] = byPlace[p] || []).push(m); });
+  const keys = Object.keys(byPlace).sort();
+  $('list-label').innerHTML = '<p class="muted">' + list.length + '件（' + keys.length + 'か所）</p>' + keys.map(function (p, i) {
+    const items = byPlace[p].sort(function (a, b) { return String(a.col || '').localeCompare(String(b.col || ''), 'ja', { numeric: true }) || a.name.localeCompare(b.name, 'ja'); });
+    return '<details open><summary>' + esc(p) + '（' + items.length + '件・用紙' + Math.ceil(items.length / 8) + '枚）　<a href="#" onclick="event.preventDefault();pickPlace(' + i + ')">この場所を選ぶ／外す</a></summary>'
+      + items.map(function (m) {
+        return '<label class="item lbl-row"><input type="checkbox" class="lchk lg' + i + '" value="' + esc(m.id) + '" checked><div style="flex:1"><div class="n">' + esc(m.name) + '</div><div class="s">' + placeText(m) + (D.printed[m.id] ? '　印刷済 ' + esc(D.printed[m.id]) : '') + '</div></div><div class="q">' + num(kind === 'mat' ? m.kg : m.qty) + '</div></label>';
+      }).join('') + '</details>';
   }).join('');
 }
 function checkAll(v) { document.querySelectorAll('.lchk').forEach(function (c) { c.checked = v; }); }
+function pickPlace(i) {
+  const list = document.querySelectorAll('.lchk.lg' + i), all = Array.prototype.every.call(list, function (c) { return c.checked; });
+  list.forEach(function (c) { c.checked = !all; });
+}
 function qrSvg(text) {
   const qr = qrcode(0, 'M'); qr.addData(text); qr.make();
   return qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
@@ -754,16 +771,25 @@ function qrSvg(text) {
 function printLabels() {
   const ids = Array.prototype.map.call(document.querySelectorAll('.lchk:checked'), function (c) { return c.value; });
   if (!ids.length) { toast('印刷するものを選んでください'); return; }
-  const labs = ids.map(function (id) {
-    const f = find(id); if (!f) return '';
-    const it = f.it, mat = f.kind === 'mat';
-    return '<div class="lab"><div class="qr">' + qrSvg(qrUrl(id)) + '</div><div class="t"><div class="nm">' + esc(it.name) + '</div>'
+  // 画面の並び（場所ごと）のまま刷る。「場所ごとに用紙を分ける」なら場所が変わるところで次の用紙にする
+  const split = $('l-split').checked, groups = [];
+  let last = null;
+  ids.forEach(function (id) {
+    const f = find(id); if (!f) return;
+    const it = f.it, mat = f.kind === 'mat', p = it.place || '（場所なし）';
+    const lab = '<div class="lab"><div class="qr">' + qrSvg(qrUrl(id)) + '</div><div class="t"><div class="nm">' + esc(it.name) + '</div>'
       + '<div class="kg">' + (mat ? num(it.kg) + ' kg' : esc(it.cust)) + '</div>'
       + '<div class="sm">' + placeText(it) + (it.note ? '　' + esc(it.note) : '') + '</div>'
       + '<div class="sm">登録 ' + esc(it.date) + '　ID ' + esc(id) + '</div></div></div>';
+    if (!groups.length || (split && p !== last)) groups.push([]);
+    groups[groups.length - 1].push(lab);
+    last = p;
   });
-  let html = '';
-  for (let i = 0; i < labs.length; i += 8) html += '<div class="page">' + labs.slice(i, i + 8).join('') + '</div>';
+  let html = '', sheets = 0;
+  groups.forEach(function (labs) {
+    for (let i = 0; i < labs.length; i += 8) { html += '<div class="page">' + labs.slice(i, i + 8).join('') + '</div>'; sheets++; }
+  });
+  if (!confirm(ids.length + '枚のラベルを、A4用紙 ' + sheets + ' 枚に印刷します。')) return;
   $('print').innerHTML = html;
   setTimeout(function () {
     window.print();
