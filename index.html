@@ -47,6 +47,12 @@ input, select { font-size:18px; padding:10px; border:1px solid var(--line); bord
 label.f { display:block; font-size:14px; color:var(--sub); margin:10px 0 3px; }
 .big { font-size:42px; font-weight:bold; } .unit { font-size:20px; margin-left:4px; }
 .muted { color:var(--sub); font-size:14px; }
+.sugg { margin:4px 0 0; border:1px solid var(--line); border-radius:8px; background:#fff; overflow:hidden; }
+.sugg:empty { display:none; }
+.sugg button { display:flex; justify-content:space-between; align-items:center; gap:8px; width:100%; text-align:left; background:#fff; border:0; border-bottom:1px solid var(--line); padding:11px 12px; font-size:17px; color:var(--text); }
+.sugg button:last-child { border-bottom:0; }
+.sugg small { color:var(--sub); font-size:13px; white-space:nowrap; }
+.sugg mark { background:#fff3b0; color:inherit; padding:0; }
 .chips { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
 .chips button { border:1px solid var(--navy); background:#fff; color:var(--navy); border-radius:20px; padding:8px 14px; font-size:17px; }
 #cam { position:relative; background:#000; border-radius:12px; overflow:hidden; display:none; }
@@ -87,7 +93,7 @@ details summary { padding:8px 0; font-weight:bold; }
 </head>
 <body>
 <header>
-  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v17</small> <span id="mode" style="display:none;font-size:13px;background:#e8913a;color:#fff;border-radius:6px;padding:1px 8px;vertical-align:middle">テスト</span></h1>
+  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v19</small> <span id="mode" style="display:none;font-size:13px;background:#e8913a;color:#fff;border-radius:6px;padding:1px 8px;vertical-align:middle">テスト</span></h1>
   <select id="staff" onchange="saveStaff()"></select>
   <button onclick="askToken('')" aria-label="合言葉の設定" style="border:0;background:none;color:#fff;padding:4px"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></svg></button>
 </header>
@@ -275,6 +281,13 @@ function find(id) {
   if (m) return { kind: 'mat', it: m };
   const s = D.subs.filter(function (x) { return x.id === id; })[0];
   if (s) return { kind: 'sub', it: s };
+  // 副資材：その行が「使い切り（副資材）」へ移っていたら、同じ資材の今の行（在庫のある行を優先）
+  const e = (D.empty || {})[id];
+  if (e && e.kind === 'sub') {
+    const same = D.subs.filter(function (x) { return x.cust === e.cust && x.name === e.name; })
+      .sort(function (a, b) { return (b.qty > 0) - (a.qty > 0); })[0];
+    if (same) return { kind: 'sub', it: same };
+  }
   return null;
 }
 function qrUrl(id) { return D.url + '?id=' + encodeURIComponent(id); }
@@ -371,11 +384,11 @@ function doChange(kind, id, op, val) {
     if (f) {
       if (op === 'move') { f.it.place = place; if (kind === 'mat') f.it.col = col; }
       else if (kind === 'mat') f.it.kg = r.after; else f.it.qty = r.after;
-      if (r.removed) D.materials.splice(D.materials.indexOf(f.it), 1);
+      if (r.removed) { const L = kind === 'mat' ? D.materials : D.subs; L.splice(L.indexOf(f.it), 1); }
       drawMat(); drawSub(); drawTana();
     }
     closeSheet();
-    toast(r.removed ? '使い切りにしました' : '登録しました（残り ' + num(r.after) + (kind === 'mat' ? ' kg' : '') + '）');
+    toast(r.removed ? (kind === 'mat' ? '使い切りにしました' : '在庫0の行を片付けました') :'登録しました（残り ' + num(r.after) + (kind === 'mat' ? ' kg' : '') + '）');
     load().catch(function () {});
   }).catch(function () { busy(false); });
 }
@@ -383,17 +396,74 @@ function doChange(kind, id, op, val) {
 /* ---------- 入荷 ---------- */
 function openReceive(kind) {
   const mat = kind === 'mat';
-  // 候補：今の在庫の名前＋名前一覧（使い切りで行が消えた材料の名前も選べる）
-  const nm = D.names || { mat: [], sub: [] };
-  const names = uniq((mat ? D.materials : D.subs).map(function (m) { return m.name; }).concat(mat ? nm.mat : nm.sub.map(function (s) { return s.name; })));
+  SUGG = suggList(kind);
   const places = mat ? D.settings.places : D.settings.subPlaces;
   openSheet('<h2>' + (mat ? '材料の入荷' : '副資材の登録') + '</h2>'
-    + '<label class="f">' + (mat ? '材料名' : '資材名') + '（候補から選ぶか、新しく入力）</label><input id="r-name" list="r-names"' + (mat ? '' : ' onchange="fillCust()"') + '><datalist id="r-names">' + names.map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>'
+    + '<label class="f">' + (mat ? '材料名' : '資材名') + '（文字を入れると候補が出ます。無ければそのまま新しく登録）</label>'
+    + '<input id="r-name" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="drawSugg()" onfocus="drawSugg()"' + (mat ? '' : ' onchange="fillCust()"') + '>'
+    + '<div class="sugg" id="r-sugg"></div>'
     + (mat ? '' : '<label class="f">取引先</label><input id="r-extra" list="r-custs"><datalist id="r-custs">' + uniq(D.subs.map(function (m) { return m.cust; })).map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>')
     + '<label class="f">' + (mat ? '重さ（kg）' : '数量') + '</label><input id="r-amt" type="number" inputmode="decimal" value="' + (mat ? 500 : '') + '">'
     + '<label class="f">保管場所</label><select id="r-place">' + places.map(function (p) { return '<option>' + esc(p) + '</option>'; }).join('') + '</select>'
     + (mat ? '<label class="f">保管列（なくても可）</label><input id="r-col"><label class="f">補足（なくても可）</label><input id="r-extra">' : '')
     + '<div id="busy"></div><button class="btn" onclick="doReceive(\'' + kind + '\')">登録する</button>');
+}
+/* 名前の候補（「もしかしてこれ？」）：iPhoneの datalist は2件しか出ないので、自前の一覧を入力欄の下に出す */
+let SUGG = [];
+/** 候補の元：今の在庫（在庫量つき）＋名前一覧（使い切りで行が消えた名前）。副資材は取引先ごとに分ける */
+function suggList(kind) {
+  const mat = kind === 'mat', m = {}, nm = D.names || { mat: [], sub: [] };
+  const put = function (name, cust, q) {
+    name = String(name || '').trim(); if (!name) return;
+    const k = (mat ? '' : cust) + '|' + name;
+    if (!m[k]) m[k] = { name: name, cust: mat ? '' : (cust || ''), q: 0, n: 0 };
+    m[k].q += q || 0; if (q > 0) m[k].n++;
+  };
+  if (mat) { D.materials.forEach(function (x) { put(x.name, '', x.kg); }); (nm.mat || []).forEach(function (n) { put(n, '', 0); }); }
+  else { D.subs.forEach(function (x) { put(x.name, x.cust, x.qty); }); (nm.sub || []).forEach(function (s) { put(s.name, s.cust, 0); }); }
+  return Object.keys(m).map(function (k) { const o = m[k]; o.key = norm(o.name + ' ' + o.cust); o.head = norm(o.name); return o; });
+}
+/** 比べやすい形に：全角→半角・大文字→小文字・ひらがな→カタカナ・空白や記号（. - ・ ／）を除く */
+function norm(s) {
+  return String(s || '').normalize('NFKC').toLowerCase()
+    .replace(/[ぁ-ゖ]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) + 0x60); })
+    .replace(/[\s.\-・\/_()（）]/g, '')
+    .replace(/ダンボール/g, '段ボール');   // 「だんぼーる」でも「段ボール」に当たるように
+}
+function drawSugg() {
+  const box = $('r-sugg'); if (!box) return;
+  const raw = $('r-name').value.trim();
+  const words = raw.split(/[\s　]+/).map(norm).filter(String);   // 空白で区切った言葉が全部入っているもの
+  if (!words.length) { box.innerHTML = ''; return; }
+  const hit = SUGG.filter(function (o) { return words.every(function (w) { return o.key.indexOf(w) >= 0; }); });
+  if (hit.length === 1 && hit[0].name === raw) { box.innerHTML = ''; return; }   // 選び終わったら閉じる
+  // 並び：名前の頭から合う → 在庫がある → 名前順
+  hit.sort(function (a, b) {
+    return (b.head.indexOf(words[0]) === 0) - (a.head.indexOf(words[0]) === 0) || (b.q > 0) - (a.q > 0) || a.name.localeCompare(b.name, 'ja');
+  });
+  const mat = !!$('r-col');   // 材料の入荷画面だけ保管列の欄がある
+  box.innerHTML = hit.slice(0, 8).map(function (o, i) {
+    const info = o.q > 0 ? (mat ? '在庫 ' + num(o.q) + 'kg・' + o.n + 'パレット' : '在庫 ' + num(o.q)) : '在庫なし';
+    return '<button type="button" onclick="pickSugg(' + SUGG.indexOf(o) + ')"><span>' + markWords(o.name, raw) + (o.cust ? '<br><small>' + esc(o.cust) + '</small>' : '') + '</span><small>' + info + '</small></button>';
+  }).join('') + (hit.length > 8 ? '<button type="button" disabled><small>ほか ' + (hit.length - 8) + ' 件（もう少し入れると絞れます）</small></button>' : '')
+    + (!hit.length ? '<button type="button" disabled><small>候補なし：この名前で新しく登録します</small></button>' : '');
+}
+/** 入れた文字に合う所に色を付ける（そのままの文字で合う所だけ） */
+function markWords(name, raw) {
+  let h = esc(name);
+  raw.split(/[\s　]+/).filter(String).forEach(function (w) {
+    const e = esc(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    h = h.replace(new RegExp('(' + e + ')(?![^<]*>)', 'i'), '<mark>$1</mark>');
+  });
+  return h;
+}
+function pickSugg(i) {
+  const o = SUGG[i];
+  $('r-name').value = o.name;
+  if ($('r-extra') && !$('r-col')) $('r-extra').value = o.cust;   // 副資材は取引先も入れる
+  $('r-sugg').innerHTML = '';
+  $('r-name').blur();
+  if ($('r-amt')) $('r-amt').focus();
 }
 /** 副資材：名前を選んだら取引先を自動で入れる */
 function fillCust() {
