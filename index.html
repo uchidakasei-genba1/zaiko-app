@@ -87,7 +87,7 @@ details summary { padding:8px 0; font-weight:bold; }
 </head>
 <body>
 <header>
-  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v16</small> <span id="mode" style="display:none;font-size:13px;background:#e8913a;color:#fff;border-radius:6px;padding:1px 8px;vertical-align:middle">テスト</span></h1>
+  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v17</small> <span id="mode" style="display:none;font-size:13px;background:#e8913a;color:#fff;border-radius:6px;padding:1px 8px;vertical-align:middle">テスト</span></h1>
   <select id="staff" onchange="saveStaff()"></select>
   <button onclick="askToken('')" aria-label="合言葉の設定" style="border:0;background:none;color:#fff;padding:4px"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></svg></button>
 </header>
@@ -109,6 +109,7 @@ details summary { padding:8px 0; font-weight:bold; }
     <button class="btn sub" onclick="openReceive('mat')">入荷を登録する</button>
     <div class="muted" id="sum-mat"></div>
     <div id="list-mat"></div>
+    <label class="muted" id="z-mat-box" style="display:block;margin-top:10px"><input type="checkbox" id="z-mat" onchange="drawMat()">0kgの行も表示する（<span id="z-mat-n">0</span>件）</label>
   </section>
 
   <!-- 副資材 -->
@@ -117,6 +118,7 @@ details summary { padding:8px 0; font-weight:bold; }
     <div class="row2" style="margin-top:8px"><select id="p-sub" onchange="drawSub()"></select><select id="c-sub" onchange="drawSub()"></select></div>
     <button class="btn sub" onclick="openReceive('sub')">新しい資材を登録する</button>
     <div id="list-sub"></div>
+    <label class="muted" id="z-sub-box" style="display:block;margin-top:10px"><input type="checkbox" id="z-sub" onchange="drawSub()">在庫0の資材も表示する（<span id="z-sub-n">0</span>件）</label>
   </section>
 
   <!-- 棚卸 -->
@@ -286,7 +288,11 @@ function placeText(it) { return esc(it.place) + (it.col ? ' ' + esc(it.col) : ''
 /* ---------- 一覧 ---------- */
 function drawMat() {
   const q = $('q-mat').value.trim().toLowerCase(), p = $('p-mat').value;
-  const list = D.materials.filter(function (m) { return (!p || m.place === p) && (!q || (m.name + ' ' + m.id).toLowerCase().indexOf(q) >= 0); })
+  const hit = D.materials.filter(function (m) { return (!p || m.place === p) && (!q || (m.name + ' ' + m.id).toLowerCase().indexOf(q) >= 0); });
+  // 0kgの行はふだん隠す（翌朝の自動掃除で使い切りへ移るまでの間など）
+  const zero = hit.filter(function (m) { return m.kg <= 0; }).length;
+  $('z-mat-n').textContent = zero; $('z-mat-box').style.display = zero ? 'block' : 'none';
+  const list = hit.filter(function (m) { return m.kg > 0 || $('z-mat').checked; })
     .sort(function (a, b) { return a.name.localeCompare(b.name, 'ja') || b.kg - a.kg; });
   const total = list.reduce(function (s, m) { return s + m.kg; }, 0);
   $('sum-mat').textContent = list.length + 'パレット　合計 ' + num(total) + ' kg';
@@ -296,7 +302,11 @@ function drawMat() {
 }
 function drawSub() {
   const q = $('q-sub').value.trim().toLowerCase(), p = $('p-sub').value, cu = $('c-sub').value;
-  const list = D.subs.filter(function (m) { return (!p || m.place === p) && (!cu || m.cust === cu) && (!q || (m.name + ' ' + m.cust + ' ' + m.id).toLowerCase().indexOf(q) >= 0); })
+  const hit = D.subs.filter(function (m) { return (!p || m.place === p) && (!cu || m.cust === cu) && (!q || (m.name + ' ' + m.cust + ' ' + m.id).toLowerCase().indexOf(q) >= 0); });
+  // 在庫0の行はふだん隠す（行は残すので、棚のQRを読めば開ける）
+  const zero = hit.filter(function (m) { return m.qty <= 0; }).length;
+  $('z-sub-n').textContent = zero; $('z-sub-box').style.display = zero ? 'block' : 'none';
+  const list = hit.filter(function (m) { return m.qty > 0 || $('z-sub').checked; })
     .sort(function (a, b) { return a.cust.localeCompare(b.cust, 'ja') || a.name.localeCompare(b.name, 'ja'); });
   $('list-sub').innerHTML = list.map(function (m) {
     return '<div class="item" onclick="openItem(\'' + m.id + '\')"><div><div class="n">' + esc(m.name) + '</div><div class="s">' + esc(m.cust) + '　' + esc(m.place) + '</div></div><div class="q">' + num(m.qty) + '</div></div>';
