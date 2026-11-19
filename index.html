@@ -134,6 +134,11 @@ details summary { padding:8px 0; font-weight:bold; }
 
   <!-- ラベル -->
   <section class="view" id="v-label">
+    <div class="card" style="margin-bottom:16px"><b>空のQRを印刷する（材料）</b>
+      <div class="muted">番号だけのQRを先に刷っておき、入荷したパレットに付けてからスマホで読んで登録します。使い切ったQRは外して、次のパレットにまた使えます。</div>
+      <div class="row2" style="margin-top:8px;align-items:center"><select id="qr-n"><option value="10">10枚（用紙1枚）</option><option value="20">20枚（用紙2枚）</option><option value="30">30枚（用紙3枚）</option><option value="50">50枚（用紙5枚）</option></select>
+      <button class="btn" style="margin:0" onclick="printBlank()">空のQRを印刷</button></div>
+    </div>
     <div class="row2">
       <select id="l-kind" onchange="drawLabel()"><option value="mat">材料</option><option value="sub">副資材</option></select>
       <select id="l-filter" onchange="drawLabel()"><option value="new">未印刷だけ</option><option value="all">すべて</option></select>
@@ -143,11 +148,6 @@ details summary { padding:8px 0; font-weight:bold; }
     <div class="row2"><button class="btn sub" onclick="checkAll(true)">全部選ぶ</button><button class="btn sub" onclick="checkAll(false)">全部外す</button></div>
     <button class="btn" onclick="printLabels()">選んだラベルを印刷（A4・10面）</button>
     <div id="list-label"></div>
-    <div class="card" style="margin-top:24px"><b>空のQRを印刷する（材料）</b>
-      <div class="muted">番号だけのQRを先に刷っておき、入荷したパレットに付けてからスマホで読んで登録します。使い切ったQRは外して、次のパレットにまた使えます。</div>
-      <div class="row2" style="margin-top:8px;align-items:center"><select id="qr-n"><option value="10">10枚（用紙1枚）</option><option value="20">20枚（用紙2枚）</option><option value="30">30枚（用紙3枚）</option><option value="50">50枚（用紙5枚）</option></select>
-      <button class="btn" style="margin:0" onclick="printBlank()">空のQRを印刷</button></div>
-    </div>
   </section>
 </main>
 
