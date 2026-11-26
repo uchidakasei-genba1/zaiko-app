@@ -84,7 +84,7 @@ details summary { padding:8px 0; font-weight:bold; }
   /* 幅48mmのOPPテープを横に1本貼れば全部覆えるよう、中身は高さ40mmの帯に収める（上下の点線＝テープの目安） */
   .lab { padding:0 5mm; display:flex; align-items:center; overflow:hidden; }
   .lab .box { width:100%; height:40mm; display:flex; gap:3mm; align-items:center; border-top:0.2mm dashed #bbb; border-bottom:0.2mm dashed #bbb; }
-  .lab .qr { width:37mm; height:37mm; flex:none; }
+  .lab .qr { width:28mm; height:28mm; flex:none; }
   .lab .qr svg { width:100%; height:100%; }
   .lab .t { flex:1; min-width:0; }
   .lab .nm { font-size:14pt; font-weight:bold; line-height:1.2; word-break:break-all; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
@@ -933,10 +933,8 @@ function printLabels() {
   ids.forEach(function (id) {
     const f = find(id); if (!f) return;
     const it = f.it, mat = f.kind === 'mat', p = it.place || '（場所なし）';
-    const lab = '<div class="lab"><div class="box"><div class="qr">' + qrSvg(qrUrl(id)) + '</div><div class="t"><div class="nm">' + esc(it.name) + '</div>'
-      + '<div class="kg">' + (mat ? num(it.kg) + ' kg' : esc(it.cust)) + '</div>'
-      + '<div class="sm">' + placeText(it) + (it.note ? '　' + esc(it.note) : '') + '</div>'
-      + '<div class="sm">登録 ' + esc(it.date) + '　ID ' + esc(id) + '</div></div></div></div>';
+    // QRの横は材料名（副資材は資材名）だけ
+    const lab = '<div class="lab"><div class="box"><div class="qr">' + qrSvg(qrUrl(id)) + '</div><div class="t"><div class="nm" style="font-size:20pt;-webkit-line-clamp:3">' + esc(it.name) + '</div></div></div></div>';
     if (!groups.length || (split && p !== last)) groups.push([]);
     groups[groups.length - 1].push(lab);
     last = p;
