@@ -80,11 +80,12 @@ details summary { padding:8px 0; font-weight:bold; }
   body { background:#fff; padding:0; }
   header, nav, main, #sheet, #toast { display:none !important; }
   #print { display:block; }
-  .page { width:210mm; height:297mm; display:grid; grid-template-columns:105mm 105mm; grid-template-rows:repeat(5, 59.4mm); page-break-after:always; }
-  /* 切り取り線はラベルの境目に1本だけ（上下のラベルで共有。一番下の段には引かない） */
-  .lab { padding:0 5mm; display:flex; align-items:center; overflow:hidden; border-bottom:0.2mm dashed #bbb; box-sizing:border-box; }
-  .lab:nth-child(n+9) { border-bottom:none; }
-  .lab .box { width:100%; height:40mm; display:flex; gap:3mm; align-items:center; }
+  /* 幅48mmのOPPテープを横に1本貼れば全部覆えるよう、1枚は高さ36mmの帯。帯どうしは隙間なく並べ、
+     切り取り線は境目に1本だけ（上下の帯で共有）。上端はプリンターの印刷できない余白を避けて10mm下げる */
+  .page { width:210mm; height:297mm; box-sizing:border-box; padding-top:10mm; display:grid; grid-template-columns:105mm 105mm; grid-template-rows:repeat(5, 36mm); align-content:start; page-break-after:always; }
+  .lab { height:36mm; padding:0 5mm; display:flex; align-items:center; overflow:hidden; border-bottom:0.2mm dashed #bbb; box-sizing:border-box; }
+  .lab:nth-child(-n+2) { border-top:0.2mm dashed #bbb; }
+  .lab .box { width:100%; height:100%; display:flex; gap:3mm; align-items:center; }
   .lab .qr { width:28mm; height:28mm; flex:none; }
   .lab .qr svg { width:100%; height:100%; }
   .lab .t { flex:1; min-width:0; }
@@ -963,7 +964,7 @@ function printBlank() {
     for (let i = 0; i < ids.length; i += PER_PAGE) {
       html += '<div class="page">' + ids.slice(i, i + PER_PAGE).map(function (id) {
         return '<div class="lab"><div class="box"><div class="qr">' + qrSvg(qrUrl(id)) + '</div><div class="t"><div class="nm" style="font-size:26pt">' + esc(id) + '</div>'
-          + '<div class="sm">内田化成 材料パレット</div><div class="sm">使い切ったら外して、次のパレットに使えます</div></div></div></div>';
+          + '<div class="sm" style="font-size:11pt">使い切ったら外す</div></div></div></div>';
       }).join('') + '</div>';
     }
     $('print').innerHTML = html;
