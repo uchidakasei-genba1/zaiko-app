@@ -73,7 +73,7 @@ details summary { padding:8px 0; font-weight:bold; }
 #toast { position:fixed; left:50%; bottom:96px; transform:translateX(-50%); background:#222; color:#fff; padding:10px 18px; border-radius:20px; font-size:16px; display:none; z-index:30; }
 .lbl-row { display:flex; align-items:center; gap:10px; }
 .lbl-row input[type=checkbox] { width:26px; height:26px; flex:none; }
-/* 印刷（A4・10面＝105×59.4mm、余白なし） */
+/* 印刷（A4・14面＝105×36mm×7段。帯は隙間なく並べる） */
 #print { display:none; }
 @media print {
   @page { size:A4; margin:0; }
@@ -82,14 +82,14 @@ details summary { padding:8px 0; font-weight:bold; }
   #print { display:block; }
   /* 幅48mmのOPPテープを横に1本貼れば全部覆えるよう、1枚は高さ36mmの帯。帯どうしは隙間なく並べ、
      切り取り線は境目に1本だけ（上下の帯で共有）。上端はプリンターの印刷できない余白を避けて10mm下げる */
-  .page { width:210mm; height:297mm; box-sizing:border-box; padding-top:10mm; display:grid; grid-template-columns:105mm 105mm; grid-template-rows:repeat(5, 36mm); align-content:start; page-break-after:always; }
+  .page { width:210mm; height:297mm; box-sizing:border-box; padding-top:10mm; display:grid; grid-template-columns:105mm 105mm; grid-template-rows:repeat(7, 36mm); align-content:start; page-break-after:always; }
   .lab { height:36mm; padding:0 5mm; display:flex; align-items:center; overflow:hidden; border-bottom:0.2mm dashed #bbb; box-sizing:border-box; }
   .lab:nth-child(-n+2) { border-top:0.2mm dashed #bbb; }
   .lab .box { width:100%; height:100%; display:flex; gap:3mm; align-items:center; }
   .lab .qr { width:28mm; height:28mm; flex:none; }
   .lab .qr svg { width:100%; height:100%; }
   .lab .t { flex:1; min-width:0; }
-  .lab .nm { font-size:14pt; font-weight:bold; line-height:1.2; word-break:break-all; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .lab .nm { font-size:14pt; font-weight:bold; line-height:1.2; word-break:keep-all; overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
   .lab .kg { font-size:12pt; margin-top:1.5mm; }
   .lab .sm { font-size:8pt; color:#333; margin-top:1mm; }
 }
@@ -138,7 +138,7 @@ details summary { padding:8px 0; font-weight:bold; }
   <section class="view" id="v-label">
     <div class="card" style="margin-bottom:16px"><b>空のQRを印刷する（材料）</b>
       <div class="muted">番号だけのQRを先に刷っておき、入荷したパレットに付けてからスマホで読んで登録します。使い切ったQRは外して、次のパレットにまた使えます。</div>
-      <div class="row2" style="margin-top:8px;align-items:center"><select id="qr-n"><option value="10">10枚（用紙1枚）</option><option value="20">20枚（用紙2枚）</option><option value="30">30枚（用紙3枚）</option><option value="50">50枚（用紙5枚）</option></select>
+      <div class="row2" style="margin-top:8px;align-items:center"><select id="qr-n"><option value="14">14枚（用紙1枚）</option><option value="28">28枚（用紙2枚）</option><option value="42">42枚（用紙3枚）</option><option value="70">70枚（用紙5枚）</option></select>
       <button class="btn" style="margin:0" onclick="printBlank()">空のQRを印刷</button></div>
     </div>
     <div class="row2">
@@ -148,7 +148,7 @@ details summary { padding:8px 0; font-weight:bold; }
     <div class="row2" style="margin-top:8px"><select id="l-place" onchange="drawLabel()"></select><input id="q-label" placeholder="名前で絞り込む" oninput="drawLabel()"></div>
     <label class="lbl-row" style="margin:8px 2px;font-size:16px"><input type="checkbox" id="l-split" checked>場所ごとに用紙を分けて印刷する（場所が変わると次の用紙から）</label>
     <div class="row2"><button class="btn sub" onclick="checkAll(true)">全部選ぶ</button><button class="btn sub" onclick="checkAll(false)">全部外す</button></div>
-    <button class="btn" onclick="printLabels()">選んだラベルを印刷（A4・10面）</button>
+    <button class="btn" onclick="printLabels()">選んだラベルを印刷（A4・14面）</button>
     <div id="list-label"></div>
   </section>
 </main>
@@ -893,7 +893,7 @@ function resume() {
 }
 
 /* ---------- ラベル ---------- */
-const PER_PAGE = 10;   // A4・10面（105×59.4mm、余白なし）
+const PER_PAGE = 14;   // A4・14面（105×36mm×7段）
 function drawLabel() {
   if (!D) return;
   const kind = $('l-kind').value, onlyNew = $('l-filter').value === 'new', q = $('q-label').value.trim().toLowerCase();
@@ -935,8 +935,13 @@ function printLabels() {
   ids.forEach(function (id) {
     const f = find(id); if (!f) return;
     const it = f.it, mat = f.kind === 'mat', p = it.place || '（場所なし）';
-    // QRの横は材料名（副資材は資材名）だけ
-    const lab = '<div class="lab"><div class="box"><div class="qr">' + qrSvg(qrUrl(id)) + '</div><div class="t"><div class="nm" style="font-size:20pt;-webkit-line-clamp:3">' + esc(it.name) + '</div></div></div></div>';
+    // QRの横は材料名だけ。副資材は1行目に取引先、2行目から資材名（資材名の頭に取引先が付いていれば外す）
+    let nm = String(it.name || ''), top = '';
+    if (!mat && it.cust) {
+      top = '<div style="font-size:12pt;font-weight:bold;margin-bottom:1mm">' + esc(it.cust) + '</div>';
+      if (nm.indexOf(it.cust) === 0) nm = nm.slice(it.cust.length).replace(/^[\s　]+/, '') || nm;
+    }
+    const lab = '<div class="lab"><div class="box"><div class="qr">' + qrSvg(qrUrl(id)) + '</div><div class="t">' + top + '<div class="nm" style="font-size:20pt;-webkit-line-clamp:' + (top ? 2 : 3) + '">' + esc(nm) + '</div></div></div></div>';
     if (!groups.length || (split && p !== last)) groups.push([]);
     groups[groups.length - 1].push(lab);
     last = p;
@@ -945,7 +950,7 @@ function printLabels() {
   groups.forEach(function (labs) {
     for (let i = 0; i < labs.length; i += PER_PAGE) { html += '<div class="page">' + labs.slice(i, i + PER_PAGE).join('') + '</div>'; sheets++; }
   });
-  if (!confirm(ids.length + '枚のラベルを、A4・10面の用紙 ' + sheets + ' 枚に印刷します。')) return;
+  if (!confirm(ids.length + '枚のラベルを、A4・14面の用紙 ' + sheets + ' 枚に印刷します。')) return;
   $('print').innerHTML = html;
   setTimeout(function () {
     window.print();
@@ -958,7 +963,7 @@ function printLabels() {
 /** 空のQRを n 枚刷る：番号をGoogleで出してもらい（続き番号・重ならない）、QR＋番号だけのラベルにする */
 function printBlank() {
   const n = Number($('qr-n').value);
-  if (!confirm('空のQRを ' + n + ' 枚（A4・10面の用紙 ' + Math.ceil(n / PER_PAGE) + ' 枚）印刷します。')) return;
+  if (!confirm('空のQRを ' + n + ' 枚（A4・14面の用紙 ' + Math.ceil(n / PER_PAGE) + ' 枚）印刷します。')) return;
   send('api_qrIssue', n).then(function (ids) {
     let html = '';
     for (let i = 0; i < ids.length; i += PER_PAGE) {
