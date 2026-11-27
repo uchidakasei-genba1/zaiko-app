@@ -98,7 +98,7 @@ details summary { padding:8px 0; font-weight:bold; }
 </head>
 <body>
 <header>
-  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v20</small> <span id="mode" style="display:none;font-size:13px;background:#e8913a;color:#fff;border-radius:6px;padding:1px 8px;vertical-align:middle">テスト</span></h1>
+  <h1>材料在庫 <small style="font-size:12px;font-weight:normal;opacity:.7">v21</small> <span id="mode" style="display:none;font-size:13px;background:#e8913a;color:#fff;border-radius:6px;padding:1px 8px;vertical-align:middle">テスト</span></h1>
   <select id="staff" onchange="saveStaff()"></select>
   <button onclick="askToken('')" aria-label="合言葉の設定" style="border:0;background:none;color:#fff;padding:4px"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></svg></button>
 </header>
@@ -648,7 +648,7 @@ function found(text, fromPhoto) {
 function tanaKey(kind, id) { return (kind === 'sub' ? '副資材' : '材料') + '|' + id; }
 function drawTana() {
   const t = D.tana;
-  const howto = '<div class="howto"><b>棚卸のやり方</b>（材料だけ。副資材は対象外）<br>'
+  const howto = '<div class="howto"><b>棚卸のやり方</b>（材料と副資材）<br>'
     + '1. 「棚卸を始める」を押す<br>'
     + '2. <b>QRがあるもの</b>：「カメラで続けて読む」でQRにかざす → 数を見て「このまま」か「直して登録」→ 自動で次のカメラに戻る<br>'
     + '3. <b>QRが無い・読めないもの</b>：下の「QRなしで確認」で名前を入れて探し、押して同じように登録<br>'
@@ -669,11 +669,11 @@ function drawTana() {
     + '<div id="tana-cam-ph"></div>'
     + '<button class="btn" onclick="startCam(\'tana\')">カメラで続けて読む</button>'
     + '<button class="btn sub" onclick="camMode=\'tana\';document.getElementById(\'photo\').click()">写真を撮って読む</button></div>'
-    + '<h3>QRなしで確認</h3><input id="tana-find" placeholder="材料名で探す" oninput="drawTanaList()">'
+    + '<h3>QRなしで確認</h3><input id="tana-find" placeholder="名前・取引先で探す" oninput="drawTanaList()">'
     + '<div id="tana-list"></div>'
     + '<details><summary>確認済み（' + done.length + '）</summary>' + done.map(function (x) {
       const r = t.done[tanaKey(x.kind, x.it.id)];
-      return '<div class="item done" onclick="tanaRead(\'' + x.it.id + '\')"><div><div class="n">' + esc(x.it.name) + '</div><div class="s">' + esc(r.at) + '　' + esc(r.staff) + '</div></div><div class="q">' + num(r.qty) + '</div></div>';
+      return '<div class="item done" onclick="tanaRead(\'' + x.it.id + '\')"><div><div class="n">' + esc(tanaName(x)) + '</div><div class="s">' + esc(r.at) + '　' + esc(r.staff) + '</div></div><div class="q">' + num(r.qty) + '</div></div>';
     }).join('') + '</details>'
     + '<details><summary>棚卸のやり方</summary>' + howto + '</details>'
     + (rest ? '<button class="btn sub" style="margin-top:24px" onclick="openClear()">確認していないものを見直して消す（' + rest + '件）</button>' : '')
@@ -694,20 +694,23 @@ function tanaCamBox() {
   }
   return tanaCamEl;
 }
-// 棚卸は材料だけ（副資材は対象外）
+// 棚卸は材料と副資材（在庫があるもの。材料は予測0も確かめる）
 function tanaAll() {
-  return D.materials.filter(function (m) { return m.kg > 0 || isYoso0(m); }).map(function (m) { return { kind: 'mat', it: m }; });
+  return D.materials.filter(function (m) { return m.kg > 0 || isYoso0(m); }).map(function (m) { return { kind: 'mat', it: m }; })
+    .concat(D.subs.filter(function (m) { return m.qty > 0; }).map(function (m) { return { kind: 'sub', it: m }; }));
 }
+// 棚卸の画面で出す名前（副資材は取引先＋資材名）
+function tanaName(x) { return x.kind === 'sub' && x.it.cust ? x.it.cust + '　' + x.it.name : x.it.name; }
 /** まだ確認していないもの（名前で絞り込み。絞り込み中は場所でまとめずに全部出す） */
 function drawTanaList() {
   if (!$('tana-list')) return;
   const q = ($('tana-find').value || '').trim().toLowerCase();
   const rest = tanaAll().filter(function (x) { return !D.tana.done[tanaKey(x.kind, x.it.id)]; });
   const row = function (x) {
-    return '<div class="item" onclick="tanaRead(\'' + x.it.id + '\')"><div><div class="n">' + esc(x.it.name) + '</div><div class="s">' + (x.kind === 'sub' ? '副資材　' : '') + placeText(x.it) + '</div></div><div class="q">' + num(x.kind === 'mat' ? x.it.kg : x.it.qty) + '</div></div>';
+    return '<div class="item" onclick="tanaRead(\'' + x.it.id + '\')"><div><div class="n">' + esc(tanaName(x)) + '</div><div class="s">' + (x.kind === 'sub' ? '副資材　' : '') + placeText(x.it) + '</div></div><div class="q">' + num(x.kind === 'mat' ? x.it.kg : x.it.qty) + '</div></div>';
   };
   if (q) {
-    const hit = rest.filter(function (x) { return (x.it.name + ' ' + x.it.id).toLowerCase().indexOf(q) >= 0; });
+    const hit = rest.filter(function (x) { return (tanaName(x) + ' ' + x.it.id).toLowerCase().indexOf(q) >= 0; });
     $('tana-list').innerHTML = '<p class="muted">まだ確認していないもの ' + hit.length + '件</p>' + (hit.map(row).join('') || '<p class="muted">該当なし（確認済みの中にあるかもしれません）</p>');
     return;
   }
@@ -730,7 +733,7 @@ function tanaStart() {
 function tanaEnd(rest) {
   if (rest) {
     // 確認していないものがあるときは、見直すか・そのまま終えるかを選んでもらう
-    openSheet('<h2>棚卸を終える</h2><p>まだ確認していない材料が <b>' + rest + ' 件</b>あります。<br>古いデータが残っている場合は、見直して消せます。</p>'
+    openSheet('<h2>棚卸を終える</h2><p>まだ確認していないものが <b>' + rest + ' 件</b>あります。<br>古いデータが残っている場合は、見直して消せます。</p>'
       + '<button class="btn" onclick="openClear()">見直して消す</button>'
       + '<button class="btn sub" onclick="closeSheet();doTanaEnd()">消さずに終える（在庫はそのまま）</button>'
       + '<button class="btn sub" onclick="closeSheet()">棚卸に戻る</button>');
@@ -747,14 +750,15 @@ function doTanaEnd() {
 function openClear() {
   const rest = tanaAll().filter(function (x) { return !D.tana.done[tanaKey(x.kind, x.it.id)]; });
   const byPlace = {};
-  rest.forEach(function (x) { const p = x.it.place || '（場所なし）'; (byPlace[p] = byPlace[p] || []).push(x.it); });
+  rest.forEach(function (x) { const p = x.it.place || '（場所なし）'; (byPlace[p] = byPlace[p] || []).push(x); });
   const keys = Object.keys(byPlace).sort();
-  openSheet('<h2>確認していない材料の見直し</h2>'
-    + '<div class="howto">現物が無いもの（古いデータ）にだけチェックを付けて、下のボタンで消します。<br>消したものは「使い切り」シートと棚卸記録に残り、材料名も名前一覧に残ります。</div>'
+  openSheet('<h2>確認していないものの見直し</h2>'
+    + '<div class="howto">現物が無いもの（古いデータ）にだけチェックを付けて、下のボタンで消します。<br>消したものは「使い切り」シート（副資材は「使い切り（副資材）」）と棚卸記録に残り、名前も名前一覧に残ります。</div>'
     + keys.map(function (p, i) {
       return '<details open><summary>' + esc(p) + '（' + byPlace[p].length + '）　<a href="#" onclick="event.preventDefault();clearPick(' + i + ')">この場所を全部選ぶ</a></summary>'
-        + byPlace[p].map(function (m) {
-          return '<label class="item lbl-row"><input type="checkbox" class="cchk g' + i + '" value="' + esc(m.id) + '" onchange="clearCount()"><div style="flex:1"><div class="n">' + esc(m.name) + '</div><div class="s">' + placeText(m) + '　更新 ' + esc(m.date) + '　ID ' + esc(m.id) + '</div></div><div class="q">' + num(m.kg) + '<span class="unit">kg</span></div></label>';
+        + byPlace[p].map(function (x) {
+          const m = x.it, mat = x.kind === 'mat';
+          return '<label class="item lbl-row"><input type="checkbox" class="cchk g' + i + '" value="' + esc(m.id) + '" onchange="clearCount()"><div style="flex:1"><div class="n">' + esc(tanaName(x)) + '</div><div class="s">' + (mat ? '' : '副資材　') + placeText(m) + '　更新 ' + esc(m.date) + '　ID ' + esc(m.id) + '</div></div><div class="q">' + num(mat ? m.kg : m.qty) + (mat ? '<span class="unit">kg</span>' : '') + '</div></label>';
         }).join('') + '</details>';
     }).join('')
     + '<button class="btn ng" id="clear-go" onclick="doClear()" disabled>選んだものを消す（0件）</button>'
@@ -785,10 +789,9 @@ function doClear() {
 /** 読んだ1件：帳簿の数を見せて「このまま」か「直す」 */
 function tanaRead(id) {
   const f = find(id);
-  if (!f || f.kind === 'sub') {
+  if (!f) {
     const e = (D.empty || {})[id];
-    $('tana-msg').innerHTML = f ? '<div class="msg info">副資材は棚卸の対象外です（' + esc(f.it.name) + '）</div>'
-      : isQ(id) ? '<div class="msg info">空のQR（' + esc(id) + '）です。まだどのパレットにも登録されていません。<br><button class="btn sub" style="margin:8px 0 0" onclick="openBlank(\'' + esc(id) + '\')">このQRを登録する</button></div>'
+    $('tana-msg').innerHTML = isQ(id) ? '<div class="msg info">空のQR（' + esc(id) + '）です。まだどのパレットにも登録されていません。<br><button class="btn sub" style="margin:8px 0 0" onclick="openBlank(\'' + esc(id) + '\')">このQRを登録する</button></div>'
       : '<div class="empty-big">在庫がありません<small>' + (e ? esc(e.name) + '　' + esc(e.date) + ' に使い切り' : 'このQRの材料は登録されていません') + '<br>ラベルをはがしてください</small></div>';
     ignore = { id: id, until: Date.now() + 3000 };
     tanaTop(); resume(); return;
@@ -801,7 +804,7 @@ function tanaRead(id) {
   if ($('tana-cam')) $('tana-cam').style.display = 'none';   // 確認中はカメラを隠す（カードがカメラの位置に来る）
   $('tana-card').innerHTML = '<div class="card" style="border:3px solid var(--accent)">'
     + (again ? '<div class="msg info">読み取り済みです（' + esc(again.at) + '）。もう一度登録できます。</div>' : '')
-    + '<div class="n" style="font-size:20px;font-weight:bold">' + esc(it.name) + '</div><div class="muted">' + placeText(it) + '　ID ' + esc(it.id) + '</div>'
+    + (mat ? '' : '<div class="muted">副資材　' + esc(it.cust) + '</div>') + '<div class="n" style="font-size:20px;font-weight:bold">' + esc(it.name) + '</div><div class="muted">' + placeText(it) + '　ID ' + esc(it.id) + '</div>'
     + '<div>' + (mat && isYoso(it) ? '予測' : '帳簿') + '：<span class="big" style="font-size:32px">' + num(q) + '</span><span class="unit">' + (mat ? 'kg' : '') + '</span></div>'
     + (mat && isYoso(it) ? '<div class="muted">前回の実測 ' + num(it.real) + 'kg（' + esc(it.realAt) + '）から生産実績で引いた数。実物の重さを入れて「直して登録」すると実測になります</div>' : '')
     // 置き場が変わっていたら、ここで直してから登録する（登録と一緒に移す）
@@ -811,7 +814,7 @@ function tanaRead(id) {
     + '<div class="muted">直したら、下の「このまま」か「直して登録」を押すと一緒に移ります</div></details>'
     + '<button class="btn ok" onclick="tanaSave(\'' + f.kind + '\',\'' + it.id + '\',null)">このまま（この数で合っている）</button>'
     + '<div class="row2"><input id="tana-q" type="number" inputmode="decimal" placeholder="実際の数"><button class="btn warn" style="margin:0" onclick="tanaSave(\'' + f.kind + '\',\'' + it.id + '\',$(\'tana-q\').value)">直して登録</button></div>'
-    + '<button class="btn ng" onclick="if(confirm(\'この材料を現物なしとして0にしますか？\\n（使い切りに移ります）\'))tanaSave(\'' + f.kind + '\',\'' + it.id + '\',0)">現物なし（0にする）</button>'
+    + '<button class="btn ng" onclick="if(confirm(\'' + (mat ? 'この材料' : 'この副資材') + 'を現物なしとして0にしますか？\\n（使い切りに移ります）\'))tanaSave(\'' + f.kind + '\',\'' + it.id + '\',0)">現物なし（0にする）</button>'
     + '<button class="btn sub" onclick="$(\'tana-card\').innerHTML=\'\';resume()">やめる</button></div>';
   tanaTop();
 }
@@ -936,13 +939,14 @@ function printLabels() {
   ids.forEach(function (id) {
     const f = find(id); if (!f) return;
     const it = f.it, mat = f.kind === 'mat', p = it.place || '（場所なし）';
-    // QRの横は材料名だけ。副資材は1行目に取引先、2行目から資材名（資材名の頭に取引先が付いていれば外す）
+    // QRの横は名前と数量（同じ名前の札を見分けるため。数量は印刷したときの在庫）。副資材は1行目に取引先、2行目から資材名（資材名の頭に取引先が付いていれば外す）
     let nm = String(it.name || ''), top = '';
     if (!mat && it.cust) {
       top = '<div style="font-size:12pt;font-weight:bold;margin-bottom:1mm">' + esc(it.cust) + '</div>';
       if (nm.indexOf(it.cust) === 0) nm = nm.slice(it.cust.length).replace(/^[\s　]+/, '') || nm;
     }
-    const lab = '<div class="lab"><div class="box"><div class="qr">' + qrSvg(qrUrl(id)) + '</div><div class="t">' + top + '<div class="nm" style="font-size:20pt;-webkit-line-clamp:' + (top ? 2 : 3) + '">' + esc(nm) + '</div></div></div></div>';
+    const lab = '<div class="lab"><div class="box"><div class="qr">' + qrSvg(qrUrl(id)) + '</div><div class="t">' + top + '<div class="nm" style="font-size:20pt;-webkit-line-clamp:2">' + esc(nm) + '</div>'
+      + '<div style="font-size:16pt;font-weight:bold;margin-top:1.5mm">' + num(mat ? it.kg : it.qty) + (mat ? ' kg' : ' 枚') + '</div></div></div></div>';
     if (!groups.length || (split && p !== last)) groups.push([]);
     groups[groups.length - 1].push(lab);
     last = p;
